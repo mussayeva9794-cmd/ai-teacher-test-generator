@@ -38,6 +38,7 @@ from storage import (
     create_share_link,
     create_local_user,
     count_share_attempts,
+    count_share_attempts_for_student_key,
     delete_student_draft,
     initialize_database,
     list_api_error_logs,
@@ -1718,13 +1719,31 @@ def render_variant_export_block(variant_name: str, variant_data: dict[str, Any],
                     placeholder="2026-04-30T18:00",
                     help="Use local datetime format YYYY-MM-DDTHH:MM.",
                 ).strip()
+                require_student_login = st.checkbox(
+                    "Require student sign-in",
+                    value=True,
+                    key=f"share_require_login_{variant_name}",
+                    help="Only authenticated student accounts can open and submit this link.",
+                )
+                reveal_score_after_submit = st.checkbox(
+                    "Show score after submit",
+                    value=True,
+                    key=f"share_show_score_{variant_name}",
+                    help="Students will see only their score summary, not correct answers.",
+                )
                 if st.button("Create share link", key=f"share_create_{variant_name}", use_container_width=True):
                     token = create_share_link(
                         test_uid=get_current_test_uid(),
                         title=variant_data.get("title", "Shared Test"),
                         variant_name=variant_name,
                         owner_email=get_owner_email(),
-                        payload={"variant_data": variant_data},
+                        payload={
+                            "variant_data": variant_data,
+                            "share_settings": {
+                                "require_student_login": require_student_login,
+                                "reveal_score_after_submit": reveal_score_after_submit,
+                            },
+                        },
                         max_attempts=int(max_attempts),
                         deadline_at=deadline_value,
                     )
@@ -1852,6 +1871,43 @@ def build_submission_key(share_token: str, student_name: str, responses: dict[st
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
+def get_student_identity() -> dict[str, str]:
+    """Return the active authenticated student identity if present."""
+    user = get_current_user()
+    if user.get("role") == "student" and not user.get("is_guest"):
+        return {
+            "student_name": user.get("display_name", "").strip(),
+            "student_key": user.get("email", "").strip().lower(),
+        }
+    return {"student_name": "", "student_key": ""}
+
+
+def render_student_sign_in_panel(share_token: str) -> bool:
+    """Render a compact sign-in panel for protected student links."""
+    identity = get_student_identity()
+    if identity["student_key"]:
+        st.success(f"Signed in as {identity['student_name']} ({identity['student_key']}).")
+        if st.button("Sign out student", key=f"student_share_signout_{share_token}", use_container_width=True):
+            st.session_state.current_user = default_guest_user()
+            st.rerun()
+        return True
+
+    st.warning("This test requires a student account. Sign in before starting the attempt.")
+    with st.form(f"student_share_login_{share_token}", clear_on_submit=False):
+        email = st.text_input("Student email")
+        password = st.text_input("Student password", type="password")
+        submitted = st.form_submit_button("Student Sign In", use_container_width=True)
+    if submitted:
+        user = authenticate_local_user(email, password)
+        if user is None or user.get("role") != "student":
+            st.error("Use a valid student account to open this test.")
+        else:
+            user["is_guest"] = False
+            st.session_state.current_user = user
+            st.rerun()
+    return False
+
+
 def apply_student_draft_to_session(variant_data: dict[str, Any], variant_name: str, draft: dict[str, Any]) -> None:
     """Populate widget state from a saved student draft."""
     responses = draft.get("responses", {})
@@ -1932,10 +1988,12 @@ def save_attempt(
     result: dict[str, Any],
     share_token: str = "",
     submission_key: str = "",
+    student_key: str = "",
 ) -> int:
     """Persist a student attempt and optionally sync it."""
     attempt_id = save_attempt_result(
         student_name=student_name,
+        student_key=student_key,
         test_uid=get_current_test_uid(),
         variant_name=variant_name,
         test_title=variant_data.get("title", ""),
@@ -1983,6 +2041,29 @@ def render_attempt_result(result: dict[str, Any]) -> None:
             st.write(f"Explanation: {item['explanation']}")
 
 
+def render_student_submission_summary(result: dict[str, Any], student_name: str, show_score: bool) -> None:
+    """Render a student-safe submission summary without revealing answers."""
+    st.markdown(
+        f"""
+        <div class="hero-shell">
+            <div class="hero-kicker">Submission received</div>
+            <div class="hero-title" style="font-size: 1.8rem;">Thank you, {escape(student_name)}</div>
+            <p class="hero-copy">Your answers were saved successfully. The teacher can now review your attempt.</p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    if not show_score:
+        st.info("Your response has been submitted successfully.")
+        return
+
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Score", f"{result['total_score']}/{result['total_questions']}")
+    col2.metric("Percentage", f"{result['percentage']}%")
+    col3.metric("Answered", result["total_questions"])
+    st.caption("Correct answers and explanations are hidden in student mode.")
+
+
 def get_share_token_from_query() -> str:
     """Read a share token from query params if present."""
     value = st.query_params.get("share", "")
@@ -1995,6 +2076,7 @@ def save_shared_attempt(
     *,
     shared_record: dict[str, Any],
     student_name: str,
+    student_key: str,
     result: dict[str, Any],
 ) -> int:
     """Save an attempt submitted through a public share link."""
@@ -2003,6 +2085,7 @@ def save_shared_attempt(
     submission_key = build_submission_key(shared_record["token"], student_name, responses)
     attempt_id = save_attempt_result(
         student_name=student_name,
+        student_key=student_key,
         test_uid=shared_record.get("test_uid", ""),
         variant_name=shared_record["variant_name"],
         test_title=shared_record["title"],
@@ -2028,17 +2111,7 @@ def save_shared_attempt(
 
 def render_submission_success_card(student_name: str, result: dict[str, Any]) -> None:
     """Render a cleaner success screen after student submission."""
-    st.markdown(
-        f"""
-        <div class="hero-shell">
-            <div class="hero-kicker">Submission received</div>
-            <div class="hero-title" style="font-size: 1.8rem;">Thank you, {escape(student_name)}</div>
-            <p class="hero-copy">Your answers were saved successfully. The teacher can now review your attempt in the analytics dashboard.</p>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-    render_attempt_result(result)
+    render_student_submission_summary(result, student_name, show_score=True)
 
 
 def render_shared_student_page(share_token: str) -> None:
@@ -2058,6 +2131,9 @@ def render_shared_student_page(share_token: str) -> None:
 
     variant_data = shared_record["payload"]["variant_data"]
     variant_name = shared_record["variant_name"]
+    share_settings = shared_record.get("payload", {}).get("share_settings", {})
+    require_student_login = bool(share_settings.get("require_student_login", False))
+    reveal_score_after_submit = bool(share_settings.get("reveal_score_after_submit", True))
     st.markdown(
         f"""
         <div class="hero-shell student-shell">
@@ -2075,14 +2151,30 @@ def render_shared_student_page(share_token: str) -> None:
 
     success_key = f"shared_success_{share_token}"
     if success_key in st.session_state:
-        render_submission_success_card(
-            st.session_state[success_key]["student_name"],
+        render_student_submission_summary(
             st.session_state[success_key]["result"],
+            st.session_state[success_key]["student_name"],
+            reveal_score_after_submit,
         )
         return
 
+    if require_student_login and not render_student_sign_in_panel(share_token):
+        return
+
+    identity = get_student_identity()
     student_name_key = f"shared_student_name_{share_token}"
-    student_name = st.text_input("Student name", key=student_name_key, placeholder="Enter your full name")
+    if require_student_login:
+        student_name = identity["student_name"]
+        student_key = identity["student_key"]
+        st.text_input(
+            "Student name",
+            value=student_name,
+            key=student_name_key,
+            disabled=True,
+        )
+    else:
+        student_name = st.text_input("Student name", key=student_name_key, placeholder="Enter your full name")
+        student_key = student_name.strip().lower()
 
     load_key = f"loaded_draft_{share_token}_{student_name.strip().lower()}"
     if student_name.strip() and not st.session_state.get(load_key):
@@ -2133,7 +2225,11 @@ def render_shared_student_page(share_token: str) -> None:
             return
         max_attempts = int(shared_record.get("max_attempts", 1))
         if max_attempts != 0:
-            current_attempts = count_share_attempts(shared_record["token"], student_name.strip())
+            current_attempts = (
+                count_share_attempts_for_student_key(shared_record["token"], student_key)
+                if require_student_login
+                else count_share_attempts(shared_record["token"], student_name.strip())
+            )
             if current_attempts >= max_attempts:
                 st.error("This student has already reached the allowed attempt limit.")
                 return
@@ -2147,6 +2243,7 @@ def render_shared_student_page(share_token: str) -> None:
         save_shared_attempt(
             shared_record=shared_record,
             student_name=student_name.strip(),
+            student_key=student_key,
             result=result,
         )
         delete_student_draft(share_token, student_name.strip())

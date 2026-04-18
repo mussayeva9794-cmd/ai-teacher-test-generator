@@ -85,6 +85,7 @@ def initialize_database() -> None:
             CREATE TABLE IF NOT EXISTS test_attempts (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 student_name TEXT NOT NULL,
+                student_key TEXT DEFAULT '',
                 test_uid TEXT DEFAULT '',
                 variant_name TEXT NOT NULL,
                 test_title TEXT NOT NULL,
@@ -156,6 +157,7 @@ def initialize_database() -> None:
 
         ensure_column(connection, "test_attempts", "share_token", "TEXT DEFAULT ''")
         ensure_column(connection, "test_attempts", "test_uid", "TEXT DEFAULT ''")
+        ensure_column(connection, "test_attempts", "student_key", "TEXT DEFAULT ''")
         ensure_column(connection, "test_attempts", "submission_key", "TEXT DEFAULT ''")
 
         for column_name, definition in (
@@ -637,6 +639,7 @@ def load_question_bank_item(record_id: int) -> dict[str, Any] | None:
 def save_attempt_result(
     *,
     student_name: str,
+    student_key: str = "",
     test_uid: str,
     variant_name: str,
     test_title: str,
@@ -652,6 +655,7 @@ def save_attempt_result(
             """
             INSERT INTO test_attempts (
                 student_name,
+                student_key,
                 test_uid,
                 variant_name,
                 test_title,
@@ -660,10 +664,11 @@ def save_attempt_result(
                 submission_key,
                 percentage,
                 payload
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 student_name,
+                student_key,
                 test_uid,
                 variant_name,
                 test_title,
@@ -737,6 +742,22 @@ def count_share_attempts(token: str, student_name: str = "") -> int:
             row = connection.execute(query, (params[0], params[1])).fetchone()
         else:
             row = connection.execute(query, (params[0],)).fetchone()
+    return int(row[0]) if row else 0
+
+
+def count_share_attempts_for_student_key(token: str, student_key: str) -> int:
+    """Count attempts for one authenticated student identity."""
+    if not token.strip() or not student_key.strip():
+        return 0
+    with get_connection() as connection:
+        row = connection.execute(
+            """
+            SELECT COUNT(*)
+            FROM test_attempts
+            WHERE share_token = ? AND student_key = ?
+            """,
+            (token.strip(), student_key.strip().lower()),
+        ).fetchone()
     return int(row[0]) if row else 0
 
 
