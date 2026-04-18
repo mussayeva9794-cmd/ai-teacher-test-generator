@@ -1747,6 +1747,8 @@ def render_variant_export_block(variant_name: str, variant_data: dict[str, Any],
                     key=f"share_require_login_{variant_name}",
                     help="Only authenticated student accounts can open and submit this link.",
                 )
+                if require_student_login:
+                    st.caption("Authenticated student links are limited to one attempt per student account.")
                 whitelist_raw = st.text_area(
                     "Allowed student emails (optional)",
                     value="",
@@ -1793,6 +1795,7 @@ def render_variant_export_block(variant_name: str, variant_data: dict[str, Any],
                     help="Students will only see a submission confirmation after finishing the test.",
                 )
                 if st.button("Create share link", key=f"share_create_{variant_name}", use_container_width=True):
+                    effective_max_attempts = 1 if require_student_login else int(max_attempts)
                     token = create_share_link(
                         test_uid=get_current_test_uid(),
                         title=variant_data.get("title", "Shared Test"),
@@ -1811,7 +1814,7 @@ def render_variant_export_block(variant_name: str, variant_data: dict[str, Any],
                                 "no_instant_score": no_instant_score,
                             },
                         },
-                        max_attempts=int(max_attempts),
+                        max_attempts=effective_max_attempts,
                         deadline_at=deadline_value,
                     )
                     share_url = build_share_url(token)
@@ -2366,6 +2369,9 @@ def render_shared_student_page(share_token: str) -> None:
     if require_student_login and allowed_students and student_key not in allowed_students:
         st.error("This student account is not on the allowed list for this test.")
         return
+    if require_student_login and count_share_attempts_for_student_key(shared_record["token"], student_key) >= 1:
+        st.warning("This student account has already submitted this test. Re-entry is blocked.")
+        return
 
     personalized_variant = build_personalized_variant(
         variant_data,
@@ -2456,14 +2462,16 @@ def render_shared_student_page(share_token: str) -> None:
             return
         max_attempts = int(shared_record.get("max_attempts", 1))
         if max_attempts != 0:
-            current_attempts = (
-                count_share_attempts_for_student_key(shared_record["token"], student_key)
-                if require_student_login
-                else count_share_attempts(shared_record["token"], student_name.strip())
-            )
-            if current_attempts >= max_attempts:
-                st.error("This student has already reached the allowed attempt limit.")
-                return
+            if require_student_login:
+                current_attempts = count_share_attempts_for_student_key(shared_record["token"], student_key)
+                if current_attempts >= 1:
+                    st.error("This student account has already submitted this test. A second attempt is not allowed.")
+                    return
+            else:
+                current_attempts = count_share_attempts(shared_record["token"], student_name.strip())
+                if current_attempts >= max_attempts:
+                    st.error("This student has already reached the allowed attempt limit.")
+                    return
         responses = collect_student_responses(personalized_variant, variant_name)
         submission_key = build_submission_key(shared_record["token"], student_name.strip(), responses)
         if attempt_submission_exists(submission_key):
