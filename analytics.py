@@ -305,3 +305,158 @@ def aggregate_attempt_history(attempts: list[dict[str, Any]]) -> dict[str, Any]:
         "risk_alerts": risk_alerts,
         "recommendations": recommendations,
     }
+
+
+def _answer_signature(detail_payload: dict[str, Any]) -> str:
+    """Build a stable answer signature for suspicious-attempt analysis."""
+    responses = detail_payload.get("responses", {})
+    return str(detail_payload.get("attempt_meta", {}).get("answer_signature", "")) or str(
+        hash(str(sorted(responses.items())))
+    )
+
+
+def build_gradebook_rows(
+    attempts: list[dict[str, Any]],
+    roster_rows: list[dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
+    """Return a teacher-friendly electronic gradebook."""
+    roster_rows = roster_rows or []
+    roster_by_email = {
+        str(item.get("email", "")).strip().lower(): item
+        for item in roster_rows
+        if str(item.get("email", "")).strip()
+    }
+    roster_by_name = {
+        str(item.get("full_name", "")).strip().lower(): item
+        for item in roster_rows
+        if str(item.get("full_name", "")).strip()
+    }
+
+    by_student: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for attempt in attempts:
+        by_student[str(attempt.get("student_name", "Unknown")).strip() or "Unknown"].append(attempt)
+
+    gradebook_rows: list[dict[str, Any]] = []
+    for student_name, student_attempts in by_student.items():
+        percentages = [float(item.get("percentage", 0.0)) for item in student_attempts]
+        latest_attempt = student_attempts[0]
+        student_key = str(latest_attempt.get("student_key", "")).strip().lower()
+        roster = roster_by_email.get(student_key) or roster_by_name.get(student_name.lower(), {})
+        gradebook_rows.append(
+            {
+                "Student": student_name,
+                "Email": student_key or roster.get("email", ""),
+                "Group": roster.get("group_name", ""),
+                "Grade": roster.get("grade_level", ""),
+                "Attempts": len(student_attempts),
+                "Latest %": round(percentages[0], 2),
+                "Average %": round(sum(percentages) / len(percentages), 2),
+                "Best %": round(max(percentages), 2),
+                "Lowest %": round(min(percentages), 2),
+                "Last Submitted": latest_attempt.get("created_at", ""),
+                "Risk": classify_risk(sum(percentages) / len(percentages)),
+            }
+        )
+    gradebook_rows.sort(key=lambda row: (row["Risk"], row["Average %"], row["Student"]))
+    return gradebook_rows
+
+
+def build_topic_progress_rows(attempts: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
+    """Aggregate topic and skill mastery overall and per student."""
+    overall_scores: dict[str, list[float]] = defaultdict(list)
+    by_student_scores: dict[str, dict[str, list[float]]] = defaultdict(lambda: defaultdict(list))
+
+    for attempt in attempts:
+        student_name = str(attempt.get("student_name", "Unknown")).strip() or "Unknown"
+        for item in attempt.get("details", {}).get("per_question", []):
+            skill = str(item.get("skill_tag", "")).strip() or "General"
+            score = float(item.get("score", 0.0))
+            overall_scores[skill].append(score)
+            by_student_scores[student_name][skill].append(score)
+
+    overall_rows = [
+        {
+            "Topic / Skill": skill,
+            "Average %": round((sum(scores) / len(scores)) * 100, 2),
+            "Questions Seen": len(scores),
+            "Risk": classify_risk((sum(scores) / len(scores)) * 100),
+        }
+        for skill, scores in overall_scores.items()
+        if scores
+    ]
+    overall_rows.sort(key=lambda row: row["Average %"])
+
+    student_rows: list[dict[str, Any]] = []
+    for student_name, skill_map in by_student_scores.items():
+        for skill, scores in skill_map.items():
+            average_score = round((sum(scores) / len(scores)) * 100, 2)
+            student_rows.append(
+                {
+                    "Student": student_name,
+                    "Topic / Skill": skill,
+                    "Average %": average_score,
+                    "Questions Seen": len(scores),
+                    "Risk": classify_risk(average_score),
+                }
+            )
+    student_rows.sort(key=lambda row: (row["Student"], row["Average %"]))
+    return {"overall": overall_rows, "by_student": student_rows}
+
+
+def detect_suspicious_attempts(attempts: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Flag suspicious attempts using simple, explainable heuristics."""
+    signature_clusters: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
+    for attempt in attempts:
+        details = attempt.get("details", {})
+        signature = _answer_signature(details)
+        cluster_key = (str(attempt.get("test_uid", "")), signature)
+        signature_clusters[cluster_key].append(attempt)
+
+    flagged_rows: list[dict[str, Any]] = []
+    seen_ids: set[int] = set()
+    for attempt in attempts:
+        attempt_id = int(attempt.get("id", 0) or 0)
+        if attempt_id in seen_ids:
+            continue
+
+        details = attempt.get("details", {})
+        meta = details.get("attempt_meta", {})
+        reasons: list[str] = []
+        suspicion_score = 0
+        duration_seconds = int(meta.get("duration_seconds", 0) or 0)
+        percentage = float(attempt.get("percentage", 0.0))
+        total_questions = max(1, int(details.get("total_questions", 0) or len(details.get("per_question", [])) or 1))
+        signature = _answer_signature(details)
+        signature_key = (str(attempt.get("test_uid", "")), signature)
+        matching_cluster = signature_clusters.get(signature_key, [])
+
+        if duration_seconds and percentage >= 90 and duration_seconds <= max(45, total_questions * 12):
+            reasons.append(f"Very fast completion ({duration_seconds}s) with a high score.")
+            suspicion_score += 45
+        if len({str(item.get('student_name', '')) for item in matching_cluster}) >= 2:
+            reasons.append(f"Identical answer pattern shared by {len(matching_cluster)} attempts.")
+            suspicion_score += 40
+        if percentage == 100 and duration_seconds and duration_seconds <= max(30, total_questions * 8):
+            reasons.append("Perfect score in unusually short time.")
+            suspicion_score += 25
+
+        if not reasons:
+            continue
+
+        seen_ids.add(attempt_id)
+        flagged_rows.append(
+            {
+                "Attempt ID": attempt_id,
+                "Student": attempt.get("student_name", ""),
+                "Variant": attempt.get("variant_name", ""),
+                "Score %": round(percentage, 2),
+                "Duration (s)": duration_seconds,
+                "Suspicion Score": min(100, suspicion_score),
+                "Risk": "High" if suspicion_score >= 70 else "Moderate",
+                "Reasons": " ".join(reasons),
+                "Submitted At": attempt.get("created_at", ""),
+            }
+        )
+
+    flagged_rows.sort(key=lambda row: (-row["Suspicion Score"], row["Student"]))
+    return flagged_rows

@@ -30,7 +30,14 @@ import streamlit as st
 import streamlit.components.v1 as components
 
 from ai_generator import generate_test
-from analytics import aggregate_attempt_history, classify_risk, grade_attempt
+from analytics import (
+    aggregate_attempt_history,
+    build_gradebook_rows,
+    build_topic_progress_rows,
+    classify_risk,
+    detect_suspicious_attempts,
+    grade_attempt,
+)
 from cloud_sync import get_cloud_status, is_cloud_enabled, sync_attempt_result, sync_history_record, sync_question_bank_item
 from document_loader import SUPPORTED_EXTENSIONS, extract_text_from_uploaded_file
 from quality import analyze_test_quality
@@ -38,17 +45,23 @@ from storage import (
     attempt_submission_exists,
     authenticate_local_user,
     create_share_link,
+    create_student_group,
     create_local_user,
+    delete_attempt_result,
     count_share_attempts,
     count_share_attempts_for_student_key,
     delete_student_draft,
+    import_group_students,
     initialize_database,
     list_api_error_logs,
     list_attempt_results,
+    list_group_students,
+    list_student_groups,
     list_question_bank,
     list_share_links,
     list_test_library,
     list_test_history,
+    load_attempt_result,
     load_student_draft,
     load_share_link,
     load_question_bank_item,
@@ -56,6 +69,7 @@ from storage import (
     load_test_record,
     log_api_error,
     save_attempt_result,
+    save_group_student,
     save_student_draft,
     save_question_bank_item,
     save_test_record,
@@ -63,6 +77,7 @@ from storage import (
     set_test_archived,
     set_test_favorite,
     upsert_autosave_record,
+    update_attempt_result,
 )
 from variants import build_all_variants
 
@@ -153,6 +168,7 @@ def initialize_state() -> None:
         "active_flow_step": "Review",
         "student_draft_loaded_for": "",
         "student_submission_confirmed": False,
+        "onboarding_dismissed": False,
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -311,6 +327,54 @@ def get_status_label() -> str:
     if attempts:
         return "Has responses"
     return "Test ready"
+
+
+def get_owner_roster() -> list[dict[str, Any]]:
+    """Return imported roster rows for the active teacher."""
+    return list_group_students(get_owner_email())
+
+
+def friendly_generation_error_message(error: Exception) -> str:
+    """Translate raw generation failures into actionable teacher-facing text."""
+    message = str(error).strip()
+    lower = message.lower()
+    if "api key" in lower or "authentication" in lower:
+        return "The AI provider rejected the request. Check the configured API key in local .env or Streamlit Secrets."
+    if "rate limit" in lower or "quota" in lower:
+        return "The AI provider is temporarily overloaded or out of quota. Wait a moment and try again."
+    if "json" in lower or "schema" in lower:
+        return "The AI returned an invalid structured response. Try again or slightly simplify the topic and settings."
+    if "network" in lower or "connection" in lower or "timed out" in lower:
+        return "The app could not reach the AI provider. Check internet access and cloud availability."
+    return message or "The test could not be generated. Please review the settings and try again."
+
+
+def build_answer_signature(responses: dict[str, Any]) -> str:
+    """Build a stable response fingerprint for anti-cheat analytics."""
+    normalized = json.dumps(responses, ensure_ascii=False, sort_keys=True)
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+
+
+def render_onboarding_panel() -> None:
+    """Show a compact onboarding checklist for new teachers."""
+    if st.session_state.get("onboarding_dismissed"):
+        return
+    with st.expander("Quick start for teachers", expanded=st.session_state.generated_test is None):
+        st.markdown(
+            """
+1. Create a test from a topic or source file.
+2. Review and adjust the questions in **Review**.
+3. Create a protected student link in **Share**.
+4. Track outcomes in **Analyze** with gradebook, topic progress, and suspicious-attempt flags.
+            """
+        )
+        info_cols = st.columns(3)
+        info_cols[0].info("Tip: import your student roster first to make the gradebook more useful.")
+        info_cols[1].info("Tip: use one-question mode and a timer for higher-stakes work.")
+        info_cols[2].info("Tip: export a backup before major edits or live demos.")
+        if st.button("Hide onboarding", key="hide_onboarding", use_container_width=True):
+            st.session_state.onboarding_dismissed = True
+            st.rerun()
 
 def render_theme() -> None:
     """Inject the custom visual theme for the app."""
@@ -586,7 +650,7 @@ def render_profile_sidebar() -> None:
             if submitted:
                 user = authenticate_local_user(email, password)
                 if user is None:
-                    st.error("Invalid email or password.")
+                    st.error("We could not sign you in. Check the email, password, and whether this account was created in the current database.")
                 else:
                     user["is_guest"] = False
                     st.session_state.current_user = user
@@ -624,9 +688,9 @@ def render_cloud_status_sidebar() -> None:
     status = get_cloud_status()
     with st.sidebar.expander("Cloud Sync", expanded=False):
         if status["enabled"]:
-            st.success("Supabase cloud backup is configured.")
+            st.success("Supabase cloud database is configured. The app now uses cloud-first storage.")
         else:
-            st.info("Cloud backup is optional. Configure SUPABASE_URL and SUPABASE_KEY to enable it.")
+            st.info("Supabase is optional. Configure SUPABASE_URL and SUPABASE_KEY to enable cloud-first storage.")
         st.caption(f"SUPABASE_URL: {'Yes' if status['url_present'] else 'No'}")
         st.caption(f"SUPABASE_KEY: {'Yes' if status['key_present'] else 'No'}")
 
@@ -706,36 +770,21 @@ def maybe_sync_history(record: dict[str, Any]) -> None:
     """Sync a history record to cloud storage if configured."""
     if not is_cloud_enabled():
         return
-    try:
-        sync_history_record(record)
-        st.toast("History synced to Supabase.")
-    except Exception as error:
-        st.warning(f"Cloud history sync failed: {error}")
+    return
 
 
 def maybe_sync_question_bank(record: dict[str, Any]) -> None:
     """Sync a question bank item to cloud storage if configured."""
     if not is_cloud_enabled():
         return
-    try:
-        sync_question_bank_item(record)
-        st.toast("Question bank synced to Supabase.")
-    except Exception as error:
-        st.warning(f"Cloud question bank sync failed: {error}")
+    return
 
 
 def maybe_sync_attempt(record: dict[str, Any]) -> None:
     """Sync an attempt result to cloud storage in the background if configured."""
     if not is_cloud_enabled():
         return
-
-    def _worker() -> None:
-        try:
-            sync_attempt_result(record)
-        except Exception:
-            return
-
-    Thread(target=_worker, daemon=True).start()
+    return
 
 
 def get_default_topic(uploaded_name: str | None) -> str:
@@ -978,7 +1027,7 @@ def handle_generation(form_data: dict[str, Any]) -> None:
             str(error),
             {"topic": clean_topic, "test_type": form_data["test_type"], "language": form_data["language"]},
         )
-        st.error(str(error))
+        st.error(friendly_generation_error_message(error))
         return
     except RuntimeError as error:
         log_api_error(
@@ -986,7 +1035,7 @@ def handle_generation(form_data: dict[str, Any]) -> None:
             str(error),
             {"topic": clean_topic, "test_type": form_data["test_type"], "language": form_data["language"]},
         )
-        st.error(str(error))
+        st.error(friendly_generation_error_message(error))
         return
     except Exception:
         log_api_error(
@@ -994,7 +1043,7 @@ def handle_generation(form_data: dict[str, Any]) -> None:
             "Unexpected generation failure",
             {"topic": clean_topic, "test_type": form_data["test_type"], "language": form_data["language"]},
         )
-        st.error("An unexpected error occurred while generating the test.")
+        st.error("The test could not be generated because of an unexpected platform error. Please retry or check the AI provider logs.")
         return
 
     test_uid = uuid4().hex
@@ -1757,6 +1806,14 @@ def render_variant_export_block(variant_name: str, variant_data: dict[str, Any],
                     help="Only these student accounts can open the test when sign-in is required.",
                     height=90,
                 )
+                group_items = list_student_groups(get_owner_email())
+                group_map = {item["name"]: int(item["id"]) for item in group_items}
+                selected_group_name = st.selectbox(
+                    "Or use imported group",
+                    options=["None"] + list(group_map),
+                    key=f"share_group_{variant_name}",
+                    help="Imported student emails from this group will be added to the whitelist automatically.",
+                )
                 per_student_random_order = st.checkbox(
                     "Randomize order for each student",
                     value=True,
@@ -1796,6 +1853,12 @@ def render_variant_export_block(variant_name: str, variant_data: dict[str, Any],
                 )
                 if st.button("Create share link", key=f"share_create_{variant_name}", use_container_width=True):
                     effective_max_attempts = 1 if require_student_login else int(max_attempts)
+                    whitelist_students = parse_whitelist(whitelist_raw)
+                    if selected_group_name != "None":
+                        for roster_row in list_group_students(get_owner_email(), group_map[selected_group_name]):
+                            roster_email = str(roster_row.get("email", "")).strip().lower()
+                            if roster_email and roster_email not in whitelist_students:
+                                whitelist_students.append(roster_email)
                     token = create_share_link(
                         test_uid=get_current_test_uid(),
                         title=variant_data.get("title", "Shared Test"),
@@ -1806,7 +1869,7 @@ def render_variant_export_block(variant_name: str, variant_data: dict[str, Any],
                             "share_settings": {
                                 "require_student_login": require_student_login,
                                 "reveal_score_after_submit": False if no_instant_score else reveal_score_after_submit,
-                                "allowed_students": parse_whitelist(whitelist_raw),
+                                "allowed_students": whitelist_students,
                                 "per_student_random_order": per_student_random_order,
                                 "timer_minutes": int(timer_minutes),
                                 "one_question_at_a_time": one_question_at_a_time,
@@ -2085,7 +2148,7 @@ def render_student_sign_in_panel(share_token: str) -> bool:
     if submitted:
         user = authenticate_local_user(email, password)
         if user is None or user.get("role") != "student":
-            st.error("Use a valid student account to open this test.")
+            st.error("This student account could not be verified. Use an existing student profile with the correct password.")
         else:
             user["is_guest"] = False
             st.session_state.current_user = user
@@ -2185,6 +2248,9 @@ def save_attempt(
         owner_email=get_owner_email(),
         share_token=share_token,
         submission_key=submission_key,
+        review_status="submitted",
+        teacher_note="",
+        answer_signature=str(result.get("attempt_meta", {}).get("answer_signature", "")),
         percentage=result["percentage"],
         payload=result,
     )
@@ -2277,6 +2343,9 @@ def save_shared_attempt(
         owner_email=shared_record.get("owner_email", ""),
         share_token=shared_record["token"],
         submission_key=submission_key,
+        review_status="submitted",
+        teacher_note="",
+        answer_signature=str(result.get("attempt_meta", {}).get("answer_signature", "")),
         percentage=result["percentage"],
         payload=result,
     )
@@ -2329,7 +2398,7 @@ def render_shared_student_page(share_token: str) -> None:
         <div class="hero-shell student-shell">
             <div class="hero-kicker">Student Assessment</div>
             <div class="hero-title" style="font-size: 1.9rem;">{escape(shared_record['title'])}</div>
-            <p class="hero-copy">Variant {escape(variant_name)}. Read each question carefully, save your progress automatically, and submit when you are ready.</p>
+            <p class="hero-copy">Variant {escape(variant_name)}. Your progress is saved automatically. Review each answer carefully before the final submission.</p>
         </div>
         """,
         unsafe_allow_html=True,
@@ -2404,6 +2473,9 @@ def render_shared_student_page(share_token: str) -> None:
     metric_col2.metric("Variant", variant_name)
     metric_col3.metric("Status", "Ready to submit" if answered_questions == total_questions else "In progress")
     metric_col4.metric("Time left", format_seconds(seconds_left) if timer_minutes > 0 else "No timer")
+    helper_col1, helper_col2 = st.columns(2, gap="large")
+    helper_col1.caption("Student page is optimized for phones: focused layout, fewer distractions, and automatic draft saving.")
+    helper_col2.caption("Correct answers stay hidden in student mode, even after submission.")
     if timer_minutes > 0:
         st.caption("The timer is enforced on submit and while navigating the test, without forcing a full page reload.")
     st.progress(progress, text=f"Progress: {answered_questions} of {total_questions} answered")
@@ -2479,6 +2551,15 @@ def render_shared_student_page(share_token: str) -> None:
             return
         result = grade_attempt(personalized_variant, responses)
         result["responses"] = responses
+        started_at, _ = get_exam_timer_state(share_token, draft_identity, timer_minutes)
+        duration_seconds = max(0, int((datetime.now() - started_at).total_seconds()))
+        result["attempt_meta"] = {
+            "duration_seconds": duration_seconds,
+            "submitted_at": datetime.now().isoformat(),
+            "timer_minutes": timer_minutes,
+            "one_question_at_a_time": one_question_at_a_time,
+            "answer_signature": build_answer_signature(responses),
+        }
         save_shared_attempt(
             shared_record=shared_record,
             student_name=student_name.strip(),
@@ -2525,6 +2606,14 @@ def render_student_mode(variants: dict[str, dict[str, Any]], disable: bool) -> N
             return
         responses = collect_student_responses(variant_data, variant_name)
         result = grade_attempt(variant_data, responses)
+        result["responses"] = responses
+        result["attempt_meta"] = {
+            "duration_seconds": 0,
+            "submitted_at": datetime.now().isoformat(),
+            "timer_minutes": 0,
+            "one_question_at_a_time": False,
+            "answer_signature": build_answer_signature(responses),
+        }
         attempt_id = save_attempt(variant_name, variant_data, student_name, result)
         st.session_state.last_attempt = {
             "attempt_id": attempt_id,
@@ -2546,6 +2635,8 @@ def build_attempt_export_frames(attempts: list[dict[str, Any]]) -> tuple[pd.Data
                 "Variant": item["variant_name"],
                 "Test": item["test_title"],
                 "Score %": item["percentage"],
+                "Status": item.get("review_status", "submitted"),
+                "Teacher Note": item.get("teacher_note", ""),
                 "Share Token": item.get("share_token", ""),
                 "Submitted At": item["created_at"],
             }
@@ -2601,6 +2692,219 @@ def render_analytics_export(attempts: list[dict[str, Any]]) -> None:
         )
 
 
+def build_backup_bundle() -> bytes:
+    """Build a JSON backup for the current teacher account."""
+    bundle = {
+        "exported_at": datetime.now().isoformat(),
+        "owner_email": get_owner_email(),
+        "tests": list_test_history(limit=1000, owner_email=get_owner_email()),
+        "question_bank": list_question_bank(limit=1000, owner_email=get_owner_email()),
+        "attempts": list_attempt_results(limit=5000, owner_email=get_owner_email()),
+        "share_links": list_share_links(limit=1000, owner_email=get_owner_email()),
+        "groups": list_student_groups(get_owner_email()),
+        "roster": list_group_students(get_owner_email()),
+        "api_errors": list_api_error_logs(limit=200),
+    }
+    return json.dumps(bundle, ensure_ascii=False, indent=2).encode("utf-8")
+
+
+def normalize_student_import_frame(frame: pd.DataFrame) -> list[dict[str, Any]]:
+    """Normalize imported student spreadsheets into a stable schema."""
+    renamed = {str(column).strip().lower(): str(column) for column in frame.columns}
+    normalized_rows: list[dict[str, Any]] = []
+    for _, row in frame.iterrows():
+        values = {str(key).strip().lower(): row[key] for key in frame.columns}
+        normalized_rows.append(
+            {
+                "full_name": str(values.get("full_name", values.get("name", values.get("student", ""))) or "").strip(),
+                "email": str(values.get("email", "") or "").strip().lower(),
+                "external_id": str(values.get("external_id", values.get("student_id", values.get("id", ""))) or "").strip(),
+                "notes": str(values.get("notes", "") or "").strip(),
+            }
+        )
+    return normalized_rows
+
+
+def render_backup_center() -> None:
+    """Render teacher backup utilities."""
+    open_section("Backup Center")
+    st.caption("Export a full teacher backup before live demos, major refactors, or data migrations.")
+    backup_bytes = build_backup_bundle()
+    st.download_button(
+        "Download full backup JSON",
+        backup_bytes,
+        f"teacher_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
+        "application/json",
+        use_container_width=True,
+    )
+    close_section()
+
+
+def render_groups_and_roster_view() -> None:
+    """Render group management and student import tools."""
+    open_section("Groups, Classes, and Student Import")
+    groups = list_student_groups(get_owner_email())
+    group_options = {f"{item['name']} ({item.get('grade_level', 'No grade')})": int(item["id"]) for item in groups}
+
+    creation_col, import_col = st.columns([1.1, 1.4], gap="large")
+    with creation_col:
+        st.markdown("**Create class or group**")
+        with st.form("create_group_form", clear_on_submit=True):
+            group_name = st.text_input("Group name", placeholder="5A Mathematics")
+            group_grade = st.text_input("Grade / class", placeholder="5-6 grade")
+            group_description = st.text_area("Description", placeholder="Morning class, algebra focus", height=90)
+            create_group_submitted = st.form_submit_button("Create group", use_container_width=True)
+        if create_group_submitted:
+            if not group_name.strip():
+                st.error("Enter a group name before creating the class.")
+            else:
+                create_student_group(
+                    owner_email=get_owner_email(),
+                    name=group_name,
+                    grade_level=group_grade,
+                    description=group_description,
+                )
+                st.success("Group created successfully.")
+                st.rerun()
+
+        if groups:
+            st.markdown("**Add one student manually**")
+            selected_manual_group = st.selectbox("Target group", options=list(group_options), key="manual_group_pick")
+            with st.form("manual_student_form", clear_on_submit=True):
+                student_name = st.text_input("Student full name")
+                student_email = st.text_input("Student email")
+                student_external_id = st.text_input("Student ID (optional)")
+                student_notes = st.text_input("Notes (optional)")
+                save_student_submitted = st.form_submit_button("Add student", use_container_width=True)
+            if save_student_submitted:
+                if not student_name.strip():
+                    st.error("Student full name is required.")
+                else:
+                    save_group_student(
+                        owner_email=get_owner_email(),
+                        group_id=group_options[selected_manual_group],
+                        full_name=student_name,
+                        email=student_email,
+                        external_id=student_external_id,
+                        notes=student_notes,
+                    )
+                    st.success("Student added to the group.")
+                    st.rerun()
+
+    with import_col:
+        st.markdown("**Import student list**")
+        if not groups:
+            st.info("Create at least one group before importing a student list.")
+        else:
+            selected_import_group = st.selectbox("Import into group", options=list(group_options), key="import_group_pick")
+            roster_file = st.file_uploader(
+                "Upload CSV or Excel roster",
+                type=["csv", "xlsx"],
+                key="roster_import_file",
+                help="Columns can be named full_name/name, email, external_id/student_id, notes.",
+            )
+            pasted_rows = st.text_area(
+                "Or paste roster lines",
+                placeholder="Aruzhan Nur\nDias Bektur, dias@example.com",
+                height=100,
+                key="roster_paste_input",
+            )
+            if st.button("Import students", use_container_width=True, key="roster_import_button"):
+                rows: list[dict[str, Any]] = []
+                if roster_file is not None:
+                    frame = pd.read_csv(roster_file) if roster_file.name.lower().endswith(".csv") else pd.read_excel(roster_file)
+                    rows.extend(normalize_student_import_frame(frame))
+                if pasted_rows.strip():
+                    for line in pasted_rows.splitlines():
+                        parts = [part.strip() for part in line.split(",")]
+                        if not parts or not parts[0]:
+                            continue
+                        rows.append(
+                            {
+                                "full_name": parts[0],
+                                "email": parts[1].lower() if len(parts) > 1 else "",
+                                "external_id": parts[2] if len(parts) > 2 else "",
+                                "notes": "",
+                            }
+                        )
+                if not rows:
+                    st.error("Upload a roster file or paste student rows before importing.")
+                else:
+                    imported = import_group_students(
+                        owner_email=get_owner_email(),
+                        group_id=group_options[selected_import_group],
+                        rows=rows,
+                    )
+                    st.success(f"Imported or updated {imported} student records.")
+                    st.rerun()
+
+    roster = list_group_students(get_owner_email())
+    if roster:
+        st.markdown("**Current roster**")
+        st.dataframe(pd.DataFrame(roster), use_container_width=True, hide_index=True)
+    else:
+        st.info("No students imported yet.")
+    close_section()
+
+
+def render_gradebook_view() -> None:
+    """Render an electronic gradebook with teacher-friendly summaries."""
+    attempts = list_attempt_results(limit=2000, owner_email=get_owner_email())
+    roster = get_owner_roster()
+    open_section("Electronic Gradebook")
+    if not attempts:
+        st.info("The gradebook will appear after student submissions.")
+        close_section()
+        return
+
+    gradebook_rows = build_gradebook_rows(attempts, roster)
+    gradebook_df = pd.DataFrame(gradebook_rows)
+    filter_col1, filter_col2, filter_col3 = st.columns(3, gap="large")
+    with filter_col1:
+        group_filter = st.selectbox(
+            "Filter by group",
+            options=["All"] + sorted({row.get("Group", "") for row in gradebook_rows if row.get("Group", "")}),
+            key="gradebook_group_filter",
+        )
+    with filter_col2:
+        risk_filter = st.selectbox("Risk band", options=["All", "Critical", "High", "Moderate", "Low"], key="gradebook_risk_filter")
+    with filter_col3:
+        search_filter = st.text_input("Search student", key="gradebook_search")
+
+    filtered_df = gradebook_df.copy()
+    if group_filter != "All":
+        filtered_df = filtered_df[filtered_df["Group"] == group_filter]
+    if risk_filter != "All":
+        filtered_df = filtered_df[filtered_df["Risk"] == risk_filter]
+    if search_filter.strip():
+        filtered_df = filtered_df[filtered_df["Student"].str.contains(search_filter.strip(), case=False, na=False)]
+
+    st.dataframe(filtered_df, use_container_width=True, hide_index=True)
+
+    gradebook_buffer = BytesIO()
+    with pd.ExcelWriter(gradebook_buffer, engine="openpyxl") as writer:
+        filtered_df.to_excel(writer, sheet_name="Gradebook", index=False)
+    gradebook_buffer.seek(0)
+    export_col1, export_col2 = st.columns(2, gap="large")
+    with export_col1:
+        st.download_button(
+            "Export gradebook CSV",
+            filtered_df.to_csv(index=False).encode("utf-8"),
+            "gradebook.csv",
+            "text/csv",
+            use_container_width=True,
+        )
+    with export_col2:
+        st.download_button(
+            "Export gradebook Excel",
+            gradebook_buffer.getvalue(),
+            "gradebook.xlsx",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True,
+        )
+    close_section()
+
+
 def build_student_weak_topics(student_attempts: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Build a compact weak-topic summary for one student."""
     topic_errors: dict[str, int] = defaultdict(int)
@@ -2634,6 +2938,8 @@ def render_analytics_dashboard() -> None:
     attempts = list_attempt_results(limit=200, owner_email=get_owner_email(), test_uid=get_current_test_uid())
     all_attempts = list_attempt_results(limit=1000, owner_email=get_owner_email())
     aggregate = aggregate_attempt_history(attempts)
+    topic_progress = build_topic_progress_rows(attempts)
+    suspicious_rows = detect_suspicious_attempts(attempts)
 
     st.caption("This dashboard is scoped to the current test only.")
 
@@ -2701,6 +3007,22 @@ def render_analytics_dashboard() -> None:
             }
         )
         st.dataframe(topic_df, use_container_width=True, hide_index=True)
+
+    progress_col1, progress_col2 = st.columns(2, gap="large")
+    with progress_col1:
+        st.markdown("**Topic progress overview**")
+        overall_topic_df = pd.DataFrame(topic_progress["overall"])
+        if not overall_topic_df.empty:
+            st.dataframe(overall_topic_df, use_container_width=True, hide_index=True)
+        else:
+            st.info("Topic mastery will appear after more question-level data is collected.")
+    with progress_col2:
+        st.markdown("**Suspicious attempts**")
+        suspicious_df = pd.DataFrame(suspicious_rows)
+        if not suspicious_df.empty:
+            st.dataframe(suspicious_df, use_container_width=True, hide_index=True)
+        else:
+            st.success("No suspicious patterns were flagged for this test.")
 
     if aggregate["weak_topics_priority"]:
         st.markdown("**Weak topics by priority**")
@@ -2809,6 +3131,10 @@ def render_analytics_dashboard() -> None:
                 )
                 st.markdown("**Progress across all saved tests**")
                 st.dataframe(all_tests_df, use_container_width=True, hide_index=True)
+                student_topic_rows = [row for row in topic_progress["by_student"] if row["Student"] == selected_student]
+                if student_topic_rows:
+                    st.markdown("**Topic progress for selected student**")
+                    st.dataframe(pd.DataFrame(student_topic_rows), use_container_width=True, hide_index=True)
 
     if aggregate["variant_comparison"]:
         st.markdown("**Variant comparison A/B/C/D**")
@@ -2876,6 +3202,51 @@ def render_student_journal(attempts: list[dict[str, Any]]) -> None:
     st.dataframe(pd.DataFrame(journal_rows), use_container_width=True, hide_index=True)
 
 
+def render_attempt_admin_tools(selected_attempt: dict[str, Any]) -> None:
+    """Allow teachers to review, edit, or delete one saved attempt."""
+    with st.expander("Review or edit this attempt", expanded=False):
+        with st.form(f"attempt_review_form_{selected_attempt['id']}"):
+            edited_name = st.text_input("Student name", value=selected_attempt.get("student_name", ""))
+            edited_percentage = st.number_input(
+                "Score %",
+                min_value=0.0,
+                max_value=100.0,
+                value=float(selected_attempt.get("percentage", 0.0)),
+                step=0.5,
+            )
+            edited_status = st.selectbox(
+                "Review status",
+                options=["submitted", "reviewed", "flagged", "excused"],
+                index=["submitted", "reviewed", "flagged", "excused"].index(
+                    str(selected_attempt.get("review_status", "submitted")) if str(selected_attempt.get("review_status", "submitted")) in {"submitted", "reviewed", "flagged", "excused"} else "submitted"
+                ),
+            )
+            teacher_note = st.text_area(
+                "Teacher note",
+                value=str(selected_attempt.get("teacher_note", "")),
+                height=100,
+            )
+            save_review = st.form_submit_button("Save changes", use_container_width=True)
+        if save_review:
+            ok = update_attempt_result(
+                attempt_id=int(selected_attempt["id"]),
+                student_name=edited_name,
+                percentage=edited_percentage,
+                review_status=edited_status,
+                teacher_note=teacher_note,
+            )
+            if ok:
+                st.success("Attempt updated.")
+                st.rerun()
+            st.error("Attempt could not be updated.")
+
+        if st.button("Delete this attempt", key=f"delete_attempt_{selected_attempt['id']}", use_container_width=True):
+            if delete_attempt_result(int(selected_attempt["id"])):
+                st.success("Attempt deleted.")
+                st.rerun()
+            st.error("Attempt could not be deleted.")
+
+
 def render_student_answers_view() -> None:
     """Render a detailed on-site view of saved student answers."""
     st.subheader("Student Answers")
@@ -2921,6 +3292,7 @@ def render_student_answers_view() -> None:
                 "Variant": item["variant_name"],
                 "Share Token": item.get("share_token", ""),
                 "Score %": item["percentage"],
+                "Status": item.get("review_status", "submitted"),
                 "Risk": classify_risk(float(item["percentage"])),
                 "Submitted At": item["created_at"],
             }
@@ -2952,6 +3324,9 @@ def render_student_answers_view() -> None:
     metric_col2.metric("Variant", selected_attempt["variant_name"])
     metric_col3.metric("Score", f"{selected_attempt['percentage']}%")
     metric_col4.metric("Risk", classify_risk(float(selected_attempt["percentage"])))
+    if selected_attempt.get("teacher_note"):
+        st.info(f"Teacher note: {selected_attempt['teacher_note']}")
+    render_attempt_admin_tools(selected_attempt)
 
     st.markdown("**Submitted answers**")
     for item in details.get("per_question", []):
@@ -3418,13 +3793,19 @@ def render_output() -> None:
 
     with main_tabs[2]:
         st.session_state.active_flow_step = "Analyze"
-        analyze_tabs = st.tabs(["Analytics", "Answers", "Library"])
+        analyze_tabs = st.tabs(["Dashboard", "Gradebook", "Answers", "Roster", "Library", "Backup"])
         with analyze_tabs[0]:
             render_live_analytics_panel()
         with analyze_tabs[1]:
-            render_live_answers_panel()
+            render_gradebook_view()
         with analyze_tabs[2]:
+            render_live_answers_panel()
+        with analyze_tabs[3]:
+            render_groups_and_roster_view()
+        with analyze_tabs[4]:
             render_test_library_view()
+        with analyze_tabs[5]:
+            render_backup_center()
 
 
 def main() -> None:
@@ -3443,6 +3824,7 @@ def main() -> None:
     render_share_links_sidebar()
 
     render_header()
+    render_onboarding_panel()
     render_project_explainers()
     render_defense_materials_notice()
 
