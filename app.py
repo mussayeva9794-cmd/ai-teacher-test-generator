@@ -2392,22 +2392,14 @@ def render_shared_student_page(share_token: str) -> None:
     if timer_minutes > 0 and seconds_left <= 0:
         st.error("Time is over. This test has been closed automatically.")
         return
-    if timer_minutes > 0:
-        components.html(
-            """
-            <script>
-            setTimeout(function() { window.parent.location.reload(); }, 15000);
-            </script>
-            """,
-            height=0,
-            width=0,
-        )
 
     metric_col1, metric_col2, metric_col3, metric_col4 = st.columns(4, gap="large")
     metric_col1.metric("Completed", f"{answered_questions}/{total_questions}")
     metric_col2.metric("Variant", variant_name)
     metric_col3.metric("Status", "Ready to submit" if answered_questions == total_questions else "In progress")
     metric_col4.metric("Time left", format_seconds(seconds_left) if timer_minutes > 0 else "No timer")
+    if timer_minutes > 0:
+        st.caption("The timer is enforced on submit and while navigating the test, without forcing a full page reload.")
     st.progress(progress, text=f"Progress: {answered_questions} of {total_questions} answered")
 
     if one_question_at_a_time:
