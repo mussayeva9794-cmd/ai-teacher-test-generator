@@ -4,12 +4,13 @@ from __future__ import annotations
 
 from copy import deepcopy
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timedelta
 from functools import lru_cache
 from io import BytesIO
 import hashlib
 import json
 import os
+import random
 from threading import Thread
 from typing import Any
 from uuid import uuid4
@@ -26,6 +27,7 @@ from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer
 import streamlit as st
+import streamlit.components.v1 as components
 
 from ai_generator import generate_test
 from analytics import aggregate_attempt_history, classify_risk, grade_attempt
@@ -662,6 +664,26 @@ def render_share_links_sidebar() -> None:
                 st.caption(
                     f"Max attempts: {'Unlimited' if int(item.get('max_attempts', 1)) == 0 else item.get('max_attempts', 1)}"
                 )
+                share_payload = load_share_link(item["token"]) or {}
+                share_settings = share_payload.get("payload", {}).get("share_settings", {})
+                if share_settings:
+                    active_rules = []
+                    if share_settings.get("require_student_login"):
+                        active_rules.append("login required")
+                    if share_settings.get("allowed_students"):
+                        active_rules.append(f"whitelist {len(share_settings.get('allowed_students', []))}")
+                    if share_settings.get("per_student_random_order"):
+                        active_rules.append("random order")
+                    if int(share_settings.get("timer_minutes", 0) or 0) > 0:
+                        active_rules.append(f"{share_settings.get('timer_minutes')} min timer")
+                    if share_settings.get("one_question_at_a_time"):
+                        active_rules.append("one-question mode")
+                    if share_settings.get("block_copy_print"):
+                        active_rules.append("copy/print deterrent")
+                    if share_settings.get("no_instant_score"):
+                        active_rules.append("no instant score")
+                    if active_rules:
+                        st.caption("Rules: " + " | ".join(active_rules))
                 share_url = build_share_url(item["token"])
                 st.code(share_url, language=None)
                 toggle_label = "Deactivate" if item["is_active"] else "Activate"
@@ -1725,11 +1747,50 @@ def render_variant_export_block(variant_name: str, variant_data: dict[str, Any],
                     key=f"share_require_login_{variant_name}",
                     help="Only authenticated student accounts can open and submit this link.",
                 )
+                whitelist_raw = st.text_area(
+                    "Allowed student emails (optional)",
+                    value="",
+                    key=f"share_whitelist_{variant_name}",
+                    placeholder="student1@example.com\nstudent2@example.com",
+                    help="Only these student accounts can open the test when sign-in is required.",
+                    height=90,
+                )
+                per_student_random_order = st.checkbox(
+                    "Randomize order for each student",
+                    value=True,
+                    key=f"share_random_order_{variant_name}",
+                    help="Each student gets the same content, but in a different deterministic order.",
+                )
+                timer_minutes = st.number_input(
+                    "Timer in minutes (0 = no timer)",
+                    min_value=0,
+                    max_value=240,
+                    value=20,
+                    step=5,
+                    key=f"share_timer_{variant_name}",
+                )
+                one_question_at_a_time = st.checkbox(
+                    "Show one question at a time",
+                    value=True,
+                    key=f"share_one_question_{variant_name}",
+                )
+                block_copy_print = st.checkbox(
+                    "Soft block copy / print",
+                    value=True,
+                    key=f"share_block_copy_{variant_name}",
+                    help="This is a soft deterrent, not a full security barrier.",
+                )
                 reveal_score_after_submit = st.checkbox(
                     "Show score after submit",
                     value=True,
                     key=f"share_show_score_{variant_name}",
                     help="Students will see only their score summary, not correct answers.",
+                )
+                no_instant_score = st.checkbox(
+                    "No instant score",
+                    value=False,
+                    key=f"share_no_score_{variant_name}",
+                    help="Students will only see a submission confirmation after finishing the test.",
                 )
                 if st.button("Create share link", key=f"share_create_{variant_name}", use_container_width=True):
                     token = create_share_link(
@@ -1741,7 +1802,13 @@ def render_variant_export_block(variant_name: str, variant_data: dict[str, Any],
                             "variant_data": variant_data,
                             "share_settings": {
                                 "require_student_login": require_student_login,
-                                "reveal_score_after_submit": reveal_score_after_submit,
+                                "reveal_score_after_submit": False if no_instant_score else reveal_score_after_submit,
+                                "allowed_students": parse_whitelist(whitelist_raw),
+                                "per_student_random_order": per_student_random_order,
+                                "timer_minutes": int(timer_minutes),
+                                "one_question_at_a_time": one_question_at_a_time,
+                                "block_copy_print": block_copy_print,
+                                "no_instant_score": no_instant_score,
                             },
                         },
                         max_attempts=int(max_attempts),
@@ -1869,6 +1936,121 @@ def build_submission_key(share_token: str, student_name: str, responses: dict[st
         sort_keys=True,
     )
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def parse_whitelist(raw_value: str) -> list[str]:
+    """Parse one whitelist textarea into lowercase student identifiers."""
+    lines = []
+    for line in str(raw_value).replace(",", "\n").splitlines():
+        cleaned = line.strip().lower()
+        if cleaned and cleaned not in lines:
+            lines.append(cleaned)
+    return lines
+
+
+def build_personalized_variant(
+    variant_data: dict[str, Any],
+    share_token: str,
+    student_identity: str,
+    enable_random_order: bool,
+) -> dict[str, Any]:
+    """Return a deterministic student-specific variant order."""
+    personalized = deepcopy(variant_data)
+    if not enable_random_order:
+        return personalized
+
+    seed_source = f"{share_token}:{student_identity.lower()}"
+    rng = random.Random(seed_source)
+    questions = deepcopy(personalized.get("questions", []))
+    rng.shuffle(questions)
+    updated_questions = []
+    for question in questions:
+        updated_question = deepcopy(question)
+        if updated_question.get("type") in {"multiple_choice", "true_false"}:
+            options = list(updated_question.get("options", []))
+            rng.shuffle(options)
+            updated_question["options"] = options
+        elif updated_question.get("type") == "matching":
+            pairs = list(updated_question.get("pairs", []))
+            rng.shuffle(pairs)
+            updated_question["pairs"] = pairs
+        updated_questions.append(updated_question)
+    personalized["questions"] = updated_questions
+    return personalized
+
+
+def render_soft_exam_protection(watermark_text: str, block_copy_print: bool) -> None:
+    """Inject lightweight anti-cheat UI protections for the student page."""
+    safe_watermark = escape(watermark_text)
+    script = ""
+    if block_copy_print:
+        script = """
+        <script>
+        document.addEventListener("contextmenu", function(event) { event.preventDefault(); });
+        document.addEventListener("copy", function(event) { event.preventDefault(); });
+        document.addEventListener("cut", function(event) { event.preventDefault(); });
+        document.addEventListener("keydown", function(event) {
+          const key = (event.key || "").toLowerCase();
+          if ((event.ctrlKey || event.metaKey) && ["c", "p", "s", "u"].includes(key)) {
+            event.preventDefault();
+          }
+          if (event.key === "PrintScreen") {
+            event.preventDefault();
+          }
+        });
+        </script>
+        """
+    components.html(
+        f"""
+        <style>
+        .student-watermark {{
+            position: fixed;
+            inset: 0;
+            pointer-events: none;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            opacity: 0.08;
+            font-size: 3.2rem;
+            letter-spacing: 0.08em;
+            transform: rotate(-22deg);
+            color: #f2d7cf;
+            z-index: 0;
+            text-transform: uppercase;
+            text-align: center;
+            white-space: pre-wrap;
+        }}
+        @media (max-width: 900px) {{
+            .student-watermark {{
+                font-size: 2rem;
+            }}
+        }}
+        </style>
+        <div class="student-watermark">{safe_watermark}</div>
+        {script}
+        """,
+        height=0,
+        width=0,
+    )
+
+
+def get_exam_timer_state(share_token: str, student_key: str, minutes_limit: int) -> tuple[datetime | None, int]:
+    """Return exam start and seconds left for the authenticated student."""
+    if minutes_limit <= 0 or not share_token.strip() or not student_key.strip():
+        return None, 0
+    state_key = f"exam_started_{share_token}_{student_key.lower()}"
+    if state_key not in st.session_state:
+        st.session_state[state_key] = datetime.now().isoformat()
+    started_at = datetime.fromisoformat(st.session_state[state_key])
+    deadline = started_at + timedelta(minutes=minutes_limit)
+    seconds_left = max(0, int((deadline - datetime.now()).total_seconds()))
+    return started_at, seconds_left
+
+
+def format_seconds(seconds_left: int) -> str:
+    """Format seconds into MM:SS."""
+    minutes, seconds = divmod(max(0, seconds_left), 60)
+    return f"{minutes:02d}:{seconds:02d}"
 
 
 def get_student_identity() -> dict[str, str]:
@@ -2134,6 +2316,11 @@ def render_shared_student_page(share_token: str) -> None:
     share_settings = shared_record.get("payload", {}).get("share_settings", {})
     require_student_login = bool(share_settings.get("require_student_login", False))
     reveal_score_after_submit = bool(share_settings.get("reveal_score_after_submit", True))
+    allowed_students = parse_whitelist("\n".join(share_settings.get("allowed_students", [])))
+    per_student_random_order = bool(share_settings.get("per_student_random_order", False))
+    timer_minutes = int(share_settings.get("timer_minutes", 0) or 0)
+    one_question_at_a_time = bool(share_settings.get("one_question_at_a_time", False))
+    block_copy_print = bool(share_settings.get("block_copy_print", False))
     st.markdown(
         f"""
         <div class="hero-shell student-shell">
@@ -2176,29 +2363,78 @@ def render_shared_student_page(share_token: str) -> None:
         student_name = st.text_input("Student name", key=student_name_key, placeholder="Enter your full name")
         student_key = student_name.strip().lower()
 
-    load_key = f"loaded_draft_{share_token}_{student_name.strip().lower()}"
+    if require_student_login and allowed_students and student_key not in allowed_students:
+        st.error("This student account is not on the allowed list for this test.")
+        return
+
+    personalized_variant = build_personalized_variant(
+        variant_data,
+        share_token=share_token,
+        student_identity=student_key or student_name.strip(),
+        enable_random_order=per_student_random_order,
+    )
+    watermark_text = student_name or student_key or "Student attempt"
+    render_soft_exam_protection(watermark_text, block_copy_print)
+
+    draft_identity = student_key or student_name.strip()
+    load_key = f"loaded_draft_{share_token}_{draft_identity.lower()}"
     if student_name.strip() and not st.session_state.get(load_key):
-        draft = load_student_draft(share_token, student_name.strip())
+        draft = load_student_draft(share_token, draft_identity)
         if draft is not None:
-            apply_student_draft_to_session(variant_data, variant_name, draft)
+            apply_student_draft_to_session(personalized_variant, variant_name, draft)
         st.session_state[load_key] = True
 
-    total_questions = max(1, len(variant_data.get("questions", [])))
-    answered_questions = count_completed_answers(variant_data, variant_name)
+    total_questions = max(1, len(personalized_variant.get("questions", [])))
+    answered_questions = count_completed_answers(personalized_variant, variant_name)
     progress = answered_questions / total_questions
 
-    metric_col1, metric_col2, metric_col3 = st.columns(3, gap="large")
+    _, seconds_left = get_exam_timer_state(share_token, draft_identity, timer_minutes)
+    if timer_minutes > 0 and seconds_left <= 0:
+        st.error("Time is over. This test has been closed automatically.")
+        return
+    if timer_minutes > 0:
+        components.html(
+            """
+            <script>
+            setTimeout(function() { window.parent.location.reload(); }, 15000);
+            </script>
+            """,
+            height=0,
+            width=0,
+        )
+
+    metric_col1, metric_col2, metric_col3, metric_col4 = st.columns(4, gap="large")
     metric_col1.metric("Completed", f"{answered_questions}/{total_questions}")
     metric_col2.metric("Variant", variant_name)
     metric_col3.metric("Status", "Ready to submit" if answered_questions == total_questions else "In progress")
+    metric_col4.metric("Time left", format_seconds(seconds_left) if timer_minutes > 0 else "No timer")
     st.progress(progress, text=f"Progress: {answered_questions} of {total_questions} answered")
 
-    for index, question in enumerate(variant_data.get("questions", [])):
+    if one_question_at_a_time:
+        current_index_key = f"student_page_index_{share_token}_{draft_identity.lower()}"
+        current_index = int(st.session_state.get(current_index_key, 0))
+        current_index = max(0, min(current_index, total_questions - 1))
+        question = personalized_variant.get("questions", [])[current_index]
+        st.caption(f"Question {current_index + 1} of {total_questions}")
         with st.container(border=True):
-            render_student_question(question, index, variant_name)
-        st.write("")
+            render_student_question(question, current_index, variant_name)
+        nav_col1, nav_col2 = st.columns(2, gap="large")
+        with nav_col1:
+            if st.button("Previous", disabled=current_index == 0, use_container_width=True, key=f"prev_q_{share_token}"):
+                st.session_state[current_index_key] = max(0, current_index - 1)
+                st.rerun()
+        with nav_col2:
+            next_label = "Next" if current_index < total_questions - 1 else "Review answers"
+            if st.button(next_label, use_container_width=True, key=f"next_q_{share_token}"):
+                st.session_state[current_index_key] = min(total_questions - 1, current_index + 1)
+                st.rerun()
+    else:
+        for index, question in enumerate(personalized_variant.get("questions", [])):
+            with st.container(border=True):
+                render_student_question(question, index, variant_name)
+            st.write("")
 
-    maybe_autosave_student_draft(share_token, student_name, variant_data, variant_name)
+    maybe_autosave_student_draft(share_token, draft_identity, personalized_variant, variant_name)
 
     action_col1, action_col2 = st.columns([1, 1], gap="large")
     with action_col1:
@@ -2207,7 +2443,10 @@ def render_shared_student_page(share_token: str) -> None:
         else:
             st.caption("Enter your name first to enable draft saving.")
     with action_col2:
-        st.caption("Use the confirmation block below before the final submission.")
+        if one_question_at_a_time:
+            st.caption("Questions are shown one at a time to reduce copying and answer sharing.")
+        else:
+            st.caption("Use the confirmation block below before the final submission.")
 
     st.markdown("**Finish test**")
     confirm_ready = st.checkbox(
@@ -2233,12 +2472,12 @@ def render_shared_student_page(share_token: str) -> None:
             if current_attempts >= max_attempts:
                 st.error("This student has already reached the allowed attempt limit.")
                 return
-        responses = collect_student_responses(variant_data, variant_name)
+        responses = collect_student_responses(personalized_variant, variant_name)
         submission_key = build_submission_key(shared_record["token"], student_name.strip(), responses)
         if attempt_submission_exists(submission_key):
             st.warning("These exact answers were already submitted. The teacher page already has this attempt.")
             return
-        result = grade_attempt(variant_data, responses)
+        result = grade_attempt(personalized_variant, responses)
         result["responses"] = responses
         save_shared_attempt(
             shared_record=shared_record,
@@ -2246,7 +2485,7 @@ def render_shared_student_page(share_token: str) -> None:
             student_key=student_key,
             result=result,
         )
-        delete_student_draft(share_token, student_name.strip())
+        delete_student_draft(share_token, draft_identity)
         st.session_state[success_key] = {
             "student_name": student_name.strip(),
             "result": result,
