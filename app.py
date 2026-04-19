@@ -51,8 +51,11 @@ from storage import (
     count_share_attempts,
     count_share_attempts_for_student_key,
     delete_student_draft,
+    get_plan_status,
     import_group_students,
     initialize_database,
+    is_valid_email,
+    list_audit_logs,
     list_api_error_logs,
     list_attempt_results,
     list_group_students,
@@ -61,6 +64,9 @@ from storage import (
     list_share_links,
     list_test_library,
     list_test_history,
+    list_usage_events,
+    log_audit_event,
+    migrate_local_data_to_cloud,
     load_attempt_result,
     load_student_draft,
     load_share_link,
@@ -68,6 +74,7 @@ from storage import (
     load_latest_test_record,
     load_test_record,
     log_api_error,
+    record_usage_event,
     save_attempt_result,
     save_group_student,
     save_student_draft,
@@ -332,6 +339,51 @@ def get_status_label() -> str:
 def get_owner_roster() -> list[dict[str, Any]]:
     """Return imported roster rows for the active teacher."""
     return list_group_students(get_owner_email())
+
+
+def get_current_plan_status() -> dict[str, Any]:
+    """Return current teacher plan and usage state."""
+    return get_plan_status(get_owner_email())
+
+
+def can_use_generation() -> tuple[bool, str]:
+    """Check whether the current teacher can generate another test."""
+    current_user = get_current_user()
+    if current_user.get("role") != "teacher":
+        return False, "Only teacher accounts can generate new tests."
+    plan = get_current_plan_status()
+    limit = int(plan["limits"].get("monthly_generations", 0))
+    used = int(plan["usage"].get("monthly_generations", 0))
+    if limit and used >= limit:
+        return False, f"Your {plan['plan_name']} plan reached the monthly generation limit ({used}/{limit})."
+    active_tests = len(list_test_library(owner_email=get_owner_email(), include_archived=False))
+    active_limit = int(plan["limits"].get("active_tests", 0))
+    if active_limit and active_tests >= active_limit:
+        return False, f"Your {plan['plan_name']} plan already has the maximum number of active tests ({active_tests}/{active_limit}). Archive old tests before creating a new one."
+    return True, ""
+
+
+def can_add_students(extra_count: int = 1) -> tuple[bool, str]:
+    """Check whether the current roster can grow by the requested amount."""
+    plan = get_current_plan_status()
+    current_students = len(get_owner_roster())
+    student_limit = int(plan["limits"].get("students", 0))
+    if student_limit and current_students + extra_count > student_limit:
+        return False, f"Adding {extra_count} students would exceed the {plan['plan_name']} plan limit ({current_students}/{student_limit})."
+    return True, ""
+
+
+def log_event(event_type: str, target_type: str = "", target_id: str = "", details: dict[str, Any] | None = None) -> None:
+    """Write one audit trail event for the current user."""
+    current_user = get_current_user()
+    log_audit_event(
+        current_user.get("email", "guest@local"),
+        current_user.get("role", ""),
+        event_type,
+        target_type,
+        target_id,
+        details or {},
+    )
 
 
 def friendly_generation_error_message(error: Exception) -> str:
@@ -651,9 +703,11 @@ def render_profile_sidebar() -> None:
                 user = authenticate_local_user(email, password)
                 if user is None:
                     st.error("We could not sign you in. Check the email, password, and whether this account was created in the current database.")
+                    log_api_error("auth", "Failed sign-in attempt", {"email": email.strip().lower()})
                 else:
                     user["is_guest"] = False
                     st.session_state.current_user = user
+                    log_audit_event(user["email"], user["role"], "sign_in", "user", user["email"], {"source": "sidebar"})
                     st.success("Signed in successfully.")
                     st.rerun()
 
@@ -665,11 +719,15 @@ def render_profile_sidebar() -> None:
                 role = st.selectbox("Role", options=["teacher", "student"])
                 submitted = st.form_submit_button("Create Profile", use_container_width=True)
             if submitted:
-                ok, message = create_local_user(email, password, display_name, role)
-                if ok:
-                    st.success(message)
+                if not is_valid_email(email):
+                    st.error("Enter a valid email address before creating the profile.")
                 else:
-                    st.error(message)
+                    ok, message = create_local_user(email, password, display_name, role)
+                    if ok:
+                        log_audit_event(email.strip().lower(), role, "sign_up", "user", email.strip().lower(), {"display_name": display_name.strip()})
+                        st.success(message)
+                    else:
+                        st.error(message)
 
         with guest_tab:
             if st.button("Use Guest Teacher Mode", use_container_width=True):
@@ -678,6 +736,7 @@ def render_profile_sidebar() -> None:
 
         if not current_user.get("is_guest"):
             if st.button("Sign Out", use_container_width=True):
+                log_audit_event(current_user["email"], current_user["role"], "sign_out", "user", current_user["email"], {})
                 st.session_state.current_user = default_guest_user()
                 st.session_state.last_attempt = None
                 st.rerun()
@@ -718,6 +777,17 @@ def render_share_links_sidebar() -> None:
         if not links:
             st.info("No shared links yet for the current test.")
             return
+
+        bulk_targets = st.multiselect(
+            "Bulk-select links",
+            options=[item["token"] for item in links],
+            format_func=lambda token: next((f"{item['variant_name']} | {item['title']}" for item in links if item["token"] == token), token),
+        )
+        if bulk_targets and st.button("Deactivate selected links", use_container_width=True):
+            for token in bulk_targets:
+                set_share_link_status(token, False)
+            log_event("bulk_deactivate_share_links", "share_link", ",".join(bulk_targets), {"count": len(bulk_targets)})
+            st.rerun()
 
         for item in links:
             with st.container(border=True):
@@ -979,6 +1049,11 @@ def extract_source_preview(uploaded_file: Any) -> tuple[str, dict[str, Any]]:
 
 def handle_generation(form_data: dict[str, Any]) -> None:
     """Validate input, optionally extract uploaded material, and generate a test."""
+    allowed, message = can_use_generation()
+    if not allowed:
+        st.error(message)
+        return
+
     source_material = ""
     source_kind = "topic"
     source_name = ""
@@ -1090,6 +1165,13 @@ def handle_generation(form_data: dict[str, Any]) -> None:
     fallback_used = any(bool(item.get("fallback_mode")) for item in generated_variants.values())
 
     record_id = save_current_test_snapshot(generated_test, metadata)
+    record_usage_event(
+        get_owner_email(),
+        "generation",
+        1,
+        {"topic": clean_topic, "test_uid": test_uid, "test_type": form_data["test_type"]},
+    )
+    log_event("generate_test", "test", test_uid, {"topic": clean_topic, "record_id": record_id})
     st.session_state.history_notice = f"Saved to local history as record #{record_id}."
     st.session_state.last_autosave_signature = build_payload_signature(generated_test, metadata)
     if fallback_used:
@@ -1882,6 +1964,8 @@ def render_variant_export_block(variant_name: str, variant_data: dict[str, Any],
                     )
                     share_url = build_share_url(token)
                     copy_share_link_value(share_url)
+                    log_event("create_share_link", "share_link", token, {"variant_name": variant_name, "max_attempts": effective_max_attempts})
+                    record_usage_event(get_owner_email(), "share_link", 1, {"variant_name": variant_name})
                     st.success("Share link created.")
                     st.code(share_url, language=None)
     with note_col:
@@ -2189,6 +2273,7 @@ def maybe_autosave_student_draft(share_token: str, student_name: str, variant_da
         return
     save_student_draft(share_token, clean_name, payload)
     st.session_state[session_key] = signature
+    st.session_state[f"draft_saved_at_{share_token}_{clean_name.lower()}"] = datetime.now().strftime("%H:%M:%S")
 
 
 def render_student_question(question: dict[str, Any], index: int, variant_name: str) -> None:
@@ -2510,6 +2595,9 @@ def render_shared_student_page(share_token: str) -> None:
     with action_col1:
         if student_name.strip():
             st.caption("Your draft is saved automatically on this device and in the local app database.")
+            saved_at = st.session_state.get(f"draft_saved_at_{share_token}_{draft_identity.lower()}", "")
+            if saved_at:
+                st.caption(f"Saved just now: {saved_at}")
         else:
             st.caption("Enter your name first to enable draft saving.")
     with action_col2:
@@ -2517,6 +2605,7 @@ def render_shared_student_page(share_token: str) -> None:
             st.caption("Questions are shown one at a time to reduce copying and answer sharing.")
         else:
             st.caption("Use the confirmation block below before the final submission.")
+        st.caption("If your connection drops, reopen the same link. Your draft and session state will be restored when available.")
 
     st.markdown("**Finish test**")
     confirm_ready = st.checkbox(
@@ -2757,13 +2846,16 @@ def render_groups_and_roster_view() -> None:
         if create_group_submitted:
             if not group_name.strip():
                 st.error("Enter a group name before creating the class.")
+            elif len(group_name.strip()) < 2:
+                st.error("Group name should contain at least 2 characters.")
             else:
-                create_student_group(
+                group_id = create_student_group(
                     owner_email=get_owner_email(),
                     name=group_name,
                     grade_level=group_grade,
                     description=group_description,
                 )
+                log_event("create_group", "group", str(group_id), {"name": group_name.strip(), "grade_level": group_grade.strip()})
                 st.success("Group created successfully.")
                 st.rerun()
 
@@ -2779,17 +2871,25 @@ def render_groups_and_roster_view() -> None:
             if save_student_submitted:
                 if not student_name.strip():
                     st.error("Student full name is required.")
+                elif student_email.strip() and not is_valid_email(student_email):
+                    st.error("Student email format is invalid.")
                 else:
-                    save_group_student(
-                        owner_email=get_owner_email(),
-                        group_id=group_options[selected_manual_group],
-                        full_name=student_name,
-                        email=student_email,
-                        external_id=student_external_id,
-                        notes=student_notes,
-                    )
-                    st.success("Student added to the group.")
-                    st.rerun()
+                    allowed, limit_message = can_add_students(1)
+                    if not allowed:
+                        st.error(limit_message)
+                    else:
+                        save_group_student(
+                            owner_email=get_owner_email(),
+                            group_id=group_options[selected_manual_group],
+                            full_name=student_name,
+                            email=student_email,
+                            external_id=student_external_id,
+                            notes=student_notes,
+                        )
+                        record_usage_event(get_owner_email(), "student_import", 1, {"mode": "manual"})
+                        log_event("add_student", "group", str(group_options[selected_manual_group]), {"student_email": student_email.strip().lower(), "student_name": student_name.strip()})
+                        st.success("Student added to the group.")
+                        st.rerun()
 
     with import_col:
         st.markdown("**Import student list**")
@@ -2830,13 +2930,23 @@ def render_groups_and_roster_view() -> None:
                 if not rows:
                     st.error("Upload a roster file or paste student rows before importing.")
                 else:
-                    imported = import_group_students(
-                        owner_email=get_owner_email(),
-                        group_id=group_options[selected_import_group],
-                        rows=rows,
-                    )
-                    st.success(f"Imported or updated {imported} student records.")
-                    st.rerun()
+                    invalid_emails = [row["email"] for row in rows if row.get("email") and not is_valid_email(row["email"])]
+                    if invalid_emails:
+                        st.error("Some student emails are invalid. Fix them before importing.")
+                    else:
+                        allowed, limit_message = can_add_students(len(rows))
+                        if not allowed:
+                            st.error(limit_message)
+                        else:
+                            imported = import_group_students(
+                                owner_email=get_owner_email(),
+                                group_id=group_options[selected_import_group],
+                                rows=rows,
+                            )
+                            record_usage_event(get_owner_email(), "student_import", imported, {"mode": "bulk"})
+                            log_event("import_students", "group", str(group_options[selected_import_group]), {"count": imported})
+                            st.success(f"Imported or updated {imported} student records.")
+                            st.rerun()
 
     roster = list_group_students(get_owner_email())
     if roster:
@@ -2902,6 +3012,102 @@ def render_gradebook_view() -> None:
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             use_container_width=True,
         )
+    close_section()
+
+
+def render_teacher_home_dashboard() -> None:
+    """Render one home dashboard for daily teacher operations."""
+    open_section("Teacher Command Center")
+    plan = get_current_plan_status()
+    today_prefix = datetime.now().strftime("%Y-%m-%d")
+    current_test_uid = get_current_test_uid()
+    attempts_current = list_attempt_results(limit=500, owner_email=get_owner_email(), test_uid=current_test_uid or None)
+    all_attempts = list_attempt_results(limit=1000, owner_email=get_owner_email())
+    active_links = [item for item in list_share_links(limit=200, owner_email=get_owner_email()) if bool(item.get("is_active"))]
+    todays_attempts = [item for item in all_attempts if str(item.get("created_at", "")).startswith(today_prefix)]
+    suspicious = detect_suspicious_attempts(attempts_current)
+    weak_topics = build_topic_progress_rows(attempts_current).get("overall", [])[:5]
+    pending_reviews = [item for item in attempts_current if str(item.get("review_status", "submitted")) == "submitted"]
+
+    top1, top2, top3, top4, top5 = st.columns(5, gap="large")
+    top1.metric("Plan", str(plan.get("plan_name", "free")).replace("_", " ").title())
+    top2.metric("This month", f"{plan['usage'].get('monthly_generations', 0)}/{plan['limits'].get('monthly_generations', 0)}")
+    top3.metric("Today", len(todays_attempts))
+    top4.metric("Active links", len(active_links))
+    top5.metric("Pending reviews", len(pending_reviews))
+
+    left, right = st.columns([1.2, 1], gap="large")
+    with left:
+        st.markdown("**Today and next actions**")
+        if pending_reviews:
+            st.warning(f"{len(pending_reviews)} attempts still need review.")
+        else:
+            st.success("No pending reviews right now.")
+        if weak_topics:
+            st.markdown("**Weak topics right now**")
+            st.dataframe(pd.DataFrame(weak_topics), use_container_width=True, hide_index=True)
+        else:
+            st.info("Weak-topic signals will appear after more submissions.")
+    with right:
+        st.markdown("**Suspicious attempts**")
+        suspicious_df = pd.DataFrame(suspicious)
+        if not suspicious_df.empty:
+            st.dataframe(suspicious_df.head(5), use_container_width=True, hide_index=True)
+        else:
+            st.success("No suspicious attempts flagged for the current test.")
+    close_section()
+
+
+def render_business_center() -> None:
+    """Render pricing, usage, migration, and audit tools."""
+    open_section("Business, Billing, and Operations")
+    plan = get_current_plan_status()
+    pricing_rows = [
+        {"Plan": "Free", "Monthly generations": 30, "Students": 50, "Active tests": 10, "Best for": "Small experiments"},
+        {"Plan": "Teacher Pro", "Monthly generations": 500, "Students": 1000, "Active tests": 200, "Best for": "Independent teachers"},
+        {"Plan": "School", "Monthly generations": 5000, "Students": 10000, "Active tests": 5000, "Best for": "Departments and schools"},
+    ]
+    usage_rows = list_usage_events(limit=200, owner_email=get_owner_email())
+    audit_rows = list_audit_logs(limit=100, actor_email=get_owner_email())
+
+    metric_col1, metric_col2, metric_col3 = st.columns(3, gap="large")
+    metric_col1.metric("Current plan", str(plan.get("plan_name", "free")).replace("_", " ").title())
+    metric_col2.metric("Generation usage", f"{plan['usage'].get('monthly_generations', 0)} / {plan['limits'].get('monthly_generations', 0)}")
+    metric_col3.metric("Trial ends", plan.get("trial_ends_at", "")[:10] or "N/A")
+
+    info_col1, info_col2 = st.columns(2, gap="large")
+    with info_col1:
+        st.markdown("**Pricing table**")
+        st.dataframe(pd.DataFrame(pricing_rows), use_container_width=True, hide_index=True)
+        st.caption("Stripe is not wired yet, but plans, quotas, and dashboards are now present in the product layer.")
+    with info_col2:
+        st.markdown("**Migration and recovery**")
+        if is_cloud_enabled():
+            if st.button("Migrate local teacher data to Supabase", use_container_width=True):
+                migrated = migrate_local_data_to_cloud(get_owner_email())
+                log_event("migrate_local_to_cloud", "migration", get_owner_email(), migrated)
+                st.success(
+                    "Migration finished: "
+                    f"{migrated['users']} users, {migrated['tests']} tests, {migrated['attempts']} attempts, "
+                    f"{migrated['groups']} groups, {migrated['students']} students."
+                )
+        else:
+            st.info("Enable Supabase first to migrate local data and use cloud recovery.")
+        st.caption("Recovery flow: the app already falls back to SQLite/local generator when cloud services are unavailable.")
+
+    lower1, lower2 = st.columns(2, gap="large")
+    with lower1:
+        st.markdown("**Recent usage events**")
+        if usage_rows:
+            st.dataframe(pd.DataFrame(usage_rows), use_container_width=True, hide_index=True)
+        else:
+            st.info("Usage events will appear after generation, imports, and other actions.")
+    with lower2:
+        st.markdown("**Recent audit log**")
+        if audit_rows:
+            st.dataframe(pd.DataFrame(audit_rows), use_container_width=True, hide_index=True)
+        else:
+            st.info("Audit events will appear after sign-in, sharing, edits, and admin actions.")
     close_section()
 
 
@@ -3236,12 +3442,14 @@ def render_attempt_admin_tools(selected_attempt: dict[str, Any]) -> None:
                 teacher_note=teacher_note,
             )
             if ok:
+                log_event("update_attempt", "attempt", str(selected_attempt["id"]), {"student_name": edited_name, "percentage": edited_percentage, "review_status": edited_status})
                 st.success("Attempt updated.")
                 st.rerun()
             st.error("Attempt could not be updated.")
 
         if st.button("Delete this attempt", key=f"delete_attempt_{selected_attempt['id']}", use_container_width=True):
             if delete_attempt_result(int(selected_attempt["id"])):
+                log_event("delete_attempt", "attempt", str(selected_attempt["id"]), {"student_name": selected_attempt.get("student_name", "")})
                 st.success("Attempt deleted.")
                 st.rerun()
             st.error("Attempt could not be deleted.")
@@ -3489,6 +3697,30 @@ def render_test_library_view() -> None:
         st.info("No saved tests match the selected filters.")
         close_section()
         return
+
+    selected_test_uids = st.multiselect(
+        "Bulk-select tests",
+        options=[item["test_uid"] for item in items],
+        format_func=lambda uid: next((f"{item['title']} | {item['grade_level']} | {item['updated_at']}" for item in items if item["test_uid"] == uid), uid),
+        key="library_bulk_tests",
+    )
+    bulk_col1, bulk_col2 = st.columns(2, gap="large")
+    with bulk_col1:
+        if selected_test_uids and st.button("Archive selected tests", use_container_width=True):
+            for uid in selected_test_uids:
+                set_test_archived(uid, get_owner_email(), True)
+            log_event("bulk_archive_tests", "test", ",".join(selected_test_uids), {"count": len(selected_test_uids)})
+            st.rerun()
+    with bulk_col2:
+        if selected_test_uids:
+            export_rows = [item for item in items if item["test_uid"] in selected_test_uids]
+            st.download_button(
+                "Export selected tests CSV",
+                pd.DataFrame(export_rows).to_csv(index=False).encode("utf-8"),
+                "selected_tests.csv",
+                "text/csv",
+                use_container_width=True,
+            )
 
     for item in items:
         with st.container(border=True):
@@ -3793,19 +4025,23 @@ def render_output() -> None:
 
     with main_tabs[2]:
         st.session_state.active_flow_step = "Analyze"
-        analyze_tabs = st.tabs(["Dashboard", "Gradebook", "Answers", "Roster", "Library", "Backup"])
+        analyze_tabs = st.tabs(["Home", "Dashboard", "Gradebook", "Answers", "Roster", "Library", "Backup", "Business"])
         with analyze_tabs[0]:
-            render_live_analytics_panel()
+            render_teacher_home_dashboard()
         with analyze_tabs[1]:
-            render_gradebook_view()
+            render_live_analytics_panel()
         with analyze_tabs[2]:
-            render_live_answers_panel()
+            render_gradebook_view()
         with analyze_tabs[3]:
-            render_groups_and_roster_view()
+            render_live_answers_panel()
         with analyze_tabs[4]:
-            render_test_library_view()
+            render_groups_and_roster_view()
         with analyze_tabs[5]:
+            render_test_library_view()
+        with analyze_tabs[6]:
             render_backup_center()
+        with analyze_tabs[7]:
+            render_business_center()
 
 
 def main() -> None:

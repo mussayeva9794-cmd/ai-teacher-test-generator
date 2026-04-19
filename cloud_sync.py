@@ -7,9 +7,16 @@ import hmac
 import json
 import os
 import secrets
+import sqlite3
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Any
 
-from dotenv import load_dotenv
+try:
+    from dotenv import load_dotenv
+except ModuleNotFoundError:  # pragma: no cover - optional dependency for test environments
+    def load_dotenv() -> None:
+        return
 
 
 load_dotenv()
@@ -103,6 +110,11 @@ def create_cloud_user(email: str, password: str, display_name: str, role: str) -
             "display_name": display_name,
             "password_hash": _hash_password(password),
             "role": role,
+            "auth_provider": "local",
+            "auth_user_id": "",
+            "plan_name": "trial" if role == "teacher" else "student",
+            "account_status": "active",
+            "trial_ends_at": "" if role == "student" else (datetime.now(UTC) + timedelta(days=14)).replace(microsecond=0).isoformat(),
         }
     ).execute()
     return True, "Profile created successfully."
@@ -114,7 +126,7 @@ def authenticate_cloud_user(email: str, password: str) -> dict[str, Any] | None:
     email = email.strip().lower()
     rows = _result_data(
         client.table("app_users")
-        .select("email,display_name,password_hash,role")
+        .select("email,display_name,password_hash,role,plan_name,account_status,trial_ends_at")
         .eq("email", email)
         .limit(1)
         .execute()
@@ -128,6 +140,9 @@ def authenticate_cloud_user(email: str, password: str) -> dict[str, Any] | None:
         "email": row.get("email", ""),
         "display_name": row.get("display_name", ""),
         "role": row.get("role", ""),
+        "plan_name": row.get("plan_name", "free"),
+        "account_status": row.get("account_status", "active"),
+        "trial_ends_at": row.get("trial_ends_at", ""),
     }
 
 
@@ -575,6 +590,176 @@ def list_cloud_api_error_logs(limit: int = 30) -> list[dict[str, Any]]:
         item["context"] = item.pop("context_json", {})
         items.append(item)
     return items
+
+
+def log_cloud_audit_event(
+    actor_email: str,
+    actor_role: str,
+    event_type: str,
+    target_type: str = "",
+    target_id: str = "",
+    details: dict[str, Any] | None = None,
+) -> int:
+    """Store one audit log row in Supabase."""
+    client = get_client()
+    rows = _result_data(
+        client.table("teacher_audit_logs")
+        .insert(
+            {
+                "actor_email": actor_email,
+                "actor_role": actor_role,
+                "event_type": event_type,
+                "target_type": target_type,
+                "target_id": target_id,
+                "details_json": details or {},
+            }
+        )
+        .execute()
+    )
+    return int(rows[0]["id"]) if rows and rows[0].get("id") is not None else 0
+
+
+def list_cloud_audit_logs(limit: int = 100, actor_email: str | None = None) -> list[dict[str, Any]]:
+    """List recent audit log rows from Supabase."""
+    client = get_client()
+    query = client.table("teacher_audit_logs").select("*").order("created_at", desc=True).limit(limit)
+    if actor_email:
+        query = query.eq("actor_email", actor_email)
+    rows = _result_data(query.execute())
+    items = []
+    for row in rows:
+        item = dict(row)
+        item["details"] = item.pop("details_json", {})
+        items.append(item)
+    return items
+
+
+def record_cloud_usage_event(owner_email: str, event_type: str, quantity: int = 1, context: dict[str, Any] | None = None) -> int:
+    """Store one usage event in Supabase."""
+    client = get_client()
+    rows = _result_data(
+        client.table("teacher_usage_events")
+        .insert(
+            {
+                "owner_email": owner_email,
+                "event_type": event_type,
+                "quantity": quantity,
+                "context_json": context or {},
+            }
+        )
+        .execute()
+    )
+    return int(rows[0]["id"]) if rows and rows[0].get("id") is not None else 0
+
+
+def list_cloud_usage_events(limit: int = 200, owner_email: str | None = None) -> list[dict[str, Any]]:
+    """List recent usage events from Supabase."""
+    client = get_client()
+    query = client.table("teacher_usage_events").select("*").order("created_at", desc=True).limit(limit)
+    if owner_email:
+        query = query.eq("owner_email", owner_email)
+    rows = _result_data(query.execute())
+    items = []
+    for row in rows:
+        item = dict(row)
+        item["context"] = item.pop("context_json", {})
+        items.append(item)
+    return items
+
+
+def get_cloud_plan_status(owner_email: str) -> dict[str, Any]:
+    """Return plan and usage state from Supabase."""
+    client = get_client()
+    user = _first_row(
+        client.table("app_users")
+        .select("plan_name,trial_ends_at,account_status")
+        .eq("email", owner_email)
+        .limit(1)
+        .execute()
+    ) or {}
+    plan_name = str(user.get("plan_name", "free") or "free")
+    limits = {
+        "free": {"monthly_generations": 30, "students": 50, "active_tests": 10},
+        "trial": {"monthly_generations": 80, "students": 150, "active_tests": 25},
+        "teacher_pro": {"monthly_generations": 500, "students": 1000, "active_tests": 200},
+        "school": {"monthly_generations": 5000, "students": 10000, "active_tests": 5000},
+        "student": {"monthly_generations": 0, "students": 0, "active_tests": 0},
+    }.get(plan_name, {"monthly_generations": 30, "students": 50, "active_tests": 10})
+    usage_events = list_cloud_usage_events(limit=5000, owner_email=owner_email)
+    monthly_generations = sum(item["quantity"] for item in usage_events if item["event_type"] == "generation")
+    return {
+        "plan_name": plan_name,
+        "trial_ends_at": user.get("trial_ends_at", ""),
+        "account_status": user.get("account_status", "active"),
+        "limits": limits,
+        "usage": {"monthly_generations": monthly_generations},
+    }
+
+
+def sync_local_data_to_cloud(db_path: Path | str, owner_email: str) -> dict[str, int]:
+    """Migrate key local SQLite rows for one teacher into Supabase."""
+    client = get_client()
+    connection = sqlite3.connect(str(db_path))
+    connection.row_factory = sqlite3.Row
+    migrated = {"users": 0, "tests": 0, "attempts": 0, "groups": 0, "students": 0}
+    try:
+        user_rows = connection.execute(
+            "SELECT email, display_name, password_hash, role, auth_provider, auth_user_id, plan_name, account_status, trial_ends_at FROM users WHERE email = ?",
+            (owner_email,),
+        ).fetchall()
+        for row in user_rows:
+            existing = _first_row(client.table("app_users").select("id").eq("email", row["email"]).limit(1).execute())
+            if existing:
+                continue
+            client.table("app_users").insert(dict(row)).execute()
+            migrated["users"] += 1
+
+        for table_name, counter_key in (("teacher_groups", "groups"), ("teacher_group_students", "students")):
+            pass
+
+        test_rows = connection.execute("SELECT * FROM test_history WHERE owner_email = ?", (owner_email,)).fetchall()
+        for row in test_rows:
+            data = dict(row)
+            data["payload"] = json.loads(data["payload"])
+            client.table("teacher_test_history").insert(data).execute()
+            migrated["tests"] += 1
+
+        attempt_rows = connection.execute("SELECT * FROM test_attempts WHERE owner_email = ?", (owner_email,)).fetchall()
+        for row in attempt_rows:
+            data = dict(row)
+            data["payload"] = json.loads(data["payload"])
+            client.table("teacher_attempts").insert(data).execute()
+            migrated["attempts"] += 1
+
+        group_rows = connection.execute("SELECT * FROM teacher_groups WHERE owner_email = ?", (owner_email,)).fetchall()
+        for row in group_rows:
+            existing = _first_row(
+                client.table("teacher_groups").select("id").eq("owner_email", owner_email).eq("name", row["name"]).limit(1).execute()
+            )
+            if existing:
+                continue
+            client.table("teacher_groups").insert(dict(row)).execute()
+            migrated["groups"] += 1
+
+        student_rows = connection.execute("SELECT * FROM teacher_group_students WHERE owner_email = ?", (owner_email,)).fetchall()
+        for row in student_rows:
+            existing = _first_row(
+                client.table("teacher_group_students")
+                .select("id")
+                .eq("owner_email", owner_email)
+                .eq("group_id", row["group_id"])
+                .eq("full_name", row["full_name"])
+                .eq("email", row["email"])
+                .limit(1)
+                .execute()
+            )
+            if existing:
+                continue
+            client.table("teacher_group_students").insert(dict(row)).execute()
+            migrated["students"] += 1
+    finally:
+        connection.close()
+    return migrated
 
 
 def create_cloud_student_group(

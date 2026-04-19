@@ -7,12 +7,12 @@ A full Streamlit web application that uses Groq cloud AI to generate, edit, expo
 - `app.py` - Main Streamlit application
 - `ai_generator.py` - Groq request logic, structured outputs, and smart long-document processing
 - `document_loader.py` - PDF, DOCX, and TXT text extraction
-- `storage.py` - SQLite storage for users, history, attempts, and question bank
+- `storage.py` - SQLite + migration/usage/audit storage for users, history, attempts, groups, and question bank
 - `quality.py` - Quality validation and readiness checks
 - `analytics.py` - Student scoring and analytics
 - `variants.py` - A/B/C classroom variants
-- `cloud_sync.py` - Optional Supabase cloud backup helpers
-- `supabase_schema.sql` - Example remote schema for cloud storage
+- `cloud_sync.py` - Supabase cloud-first data layer
+- `supabase_schema.sql` - Full Supabase schema for cloud storage
 - `requirements.txt` - Python dependencies
 - `.env.example` - Example environment variables
 - `README.md` - Setup and usage guide
@@ -50,8 +50,11 @@ A full Streamlit web application that uses Groq cloud AI to generate, edit, expo
   - `Variant D`
 - Student practice mode with automatic checking
 - Analytics dashboard:
+  - teacher home dashboard
   - per-test analytics only
   - individual student cards
+  - topic progress analytics
+  - suspicious-attempt detection
   - total attempts
   - average, median, and pass rate
   - variant gap and performance by variant
@@ -74,6 +77,11 @@ A full Streamlit web application that uses Groq cloud AI to generate, edit, expo
   - teacher
   - student
   - guest mode
+- Electronic gradebook and roster import
+- Groups / classes with CSV/XLSX student import
+- Audit log and usage events
+- Plan-aware quotas for monetization experiments
+- Backup center and local-to-cloud migration helper
 - Local SQLite history
 - Teacher library with subject tags, favorites, sorting, and quick preview
 - Question bank for reusing saved questions
@@ -81,7 +89,7 @@ A full Streamlit web application that uses Groq cloud AI to generate, edit, expo
 - Student draft saving and duplicate-submission protection
 - Student submissions saved to the database
 - API error logging for reliability
-- Optional Supabase cloud backup for history, attempts, and question bank data
+- Optional Supabase cloud-first database for users, tests, links, attempts, drafts, and logs
 
 ## Pedagogical Justification
 
@@ -142,11 +150,25 @@ ENABLE_FALLBACK_GENERATOR=1
 
 ## Local and Cloud Storage
 
-- Local data is stored in `teacher_history.db`
-- Profiles, history, question bank, and attempts work locally out of the box
+- Local data is stored in `teacher_history.db` when Supabase is not configured
+- If Supabase is configured, the app uses cloud-first storage for users, tests, question bank, links, attempts, drafts, groups, audit logs, and usage logs
 - Shared student links are generated from the app and point to `PUBLIC_APP_URL?share=<token>`
-- If `SUPABASE_URL` and `SUPABASE_KEY` are set, the app can also sync saved records to Supabase
-- Example remote table schema is included in `supabase_schema.sql`
+- Apply `supabase_schema.sql` in Supabase SQL editor before enabling cloud mode
+- Re-run `supabase_schema.sql` after major updates so new tables and columns are created safely
+
+## Reliability Checks
+
+Run the local smoke test:
+
+```bash
+python smoke_test.py
+```
+
+Run the lightweight unit tests:
+
+```bash
+python -m unittest discover -s tests
+```
 
 ## Run the App
 

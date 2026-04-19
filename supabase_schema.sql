@@ -4,7 +4,12 @@ create table if not exists app_users (
     email text not null unique,
     display_name text not null,
     password_hash text not null,
-    role text not null
+    role text not null,
+    auth_provider text default 'local',
+    auth_user_id text default '',
+    plan_name text default 'free',
+    account_status text default 'active',
+    trial_ends_at text default ''
 );
 
 create table if not exists teacher_test_history (
@@ -92,6 +97,35 @@ create table if not exists teacher_api_error_logs (
     context_json jsonb default '{}'::jsonb
 );
 
+create table if not exists teacher_audit_logs (
+    id bigint generated always as identity primary key,
+    created_at timestamptz not null default now(),
+    actor_email text not null,
+    actor_role text default '',
+    event_type text not null,
+    target_type text default '',
+    target_id text default '',
+    details_json jsonb default '{}'::jsonb
+);
+
+create table if not exists teacher_usage_events (
+    id bigint generated always as identity primary key,
+    created_at timestamptz not null default now(),
+    owner_email text not null,
+    event_type text not null,
+    quantity integer not null default 1,
+    context_json jsonb default '{}'::jsonb
+);
+
+create table if not exists schema_meta (
+    key text primary key,
+    value text not null
+);
+
+insert into schema_meta (key, value)
+values ('schema_version', '5')
+on conflict (key) do update set value = '5';
+
 create table if not exists teacher_groups (
     id bigint generated always as identity primary key,
     created_at timestamptz not null default now(),
@@ -114,3 +148,12 @@ create table if not exists teacher_group_students (
 
 create unique index if not exists teacher_group_students_unique
     on teacher_group_students (group_id, email, full_name);
+
+-- Optional production hardening:
+-- 1. Move user sessions to Supabase Auth.
+-- 2. Add auth_user_id in app_users and map it to auth.users.id.
+-- 3. Enable RLS on teacher_* tables and restrict rows by owner_email/student_key.
+-- Example starter policy pattern:
+-- alter table teacher_test_history enable row level security;
+-- create policy teacher_owns_tests on teacher_test_history
+-- for all using (owner_email = auth.jwt() ->> 'email');

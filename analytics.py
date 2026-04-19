@@ -406,11 +406,22 @@ def build_topic_progress_rows(attempts: list[dict[str, Any]]) -> dict[str, list[
 def detect_suspicious_attempts(attempts: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Flag suspicious attempts using simple, explainable heuristics."""
     signature_clusters: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
+    error_sequence_clusters: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
+    duration_clusters: dict[tuple[str, int], list[dict[str, Any]]] = defaultdict(list)
     for attempt in attempts:
         details = attempt.get("details", {})
         signature = _answer_signature(details)
         cluster_key = (str(attempt.get("test_uid", "")), signature)
         signature_clusters[cluster_key].append(attempt)
+        error_sequence = ",".join(
+            str(item.get("index", 0))
+            for item in details.get("per_question", [])
+            if float(item.get("score", 0.0)) < 0.999
+        )
+        error_sequence_clusters[(str(attempt.get("test_uid", "")), error_sequence)].append(attempt)
+        duration_seconds = int(details.get("attempt_meta", {}).get("duration_seconds", 0) or 0)
+        if duration_seconds:
+            duration_clusters[(str(attempt.get("test_uid", "")), duration_seconds)].append(attempt)
 
     flagged_rows: list[dict[str, Any]] = []
     seen_ids: set[int] = set()
@@ -429,6 +440,13 @@ def detect_suspicious_attempts(attempts: list[dict[str, Any]]) -> list[dict[str,
         signature = _answer_signature(details)
         signature_key = (str(attempt.get("test_uid", "")), signature)
         matching_cluster = signature_clusters.get(signature_key, [])
+        error_sequence = ",".join(
+            str(item.get("index", 0))
+            for item in details.get("per_question", [])
+            if float(item.get("score", 0.0)) < 0.999
+        )
+        matching_error_sequence = error_sequence_clusters.get((str(attempt.get("test_uid", "")), error_sequence), [])
+        matching_duration = duration_clusters.get((str(attempt.get("test_uid", "")), duration_seconds), [])
 
         if duration_seconds and percentage >= 90 and duration_seconds <= max(45, total_questions * 12):
             reasons.append(f"Very fast completion ({duration_seconds}s) with a high score.")
@@ -436,6 +454,12 @@ def detect_suspicious_attempts(attempts: list[dict[str, Any]]) -> list[dict[str,
         if len({str(item.get('student_name', '')) for item in matching_cluster}) >= 2:
             reasons.append(f"Identical answer pattern shared by {len(matching_cluster)} attempts.")
             suspicion_score += 40
+        if error_sequence and len({str(item.get('student_name', '')) for item in matching_error_sequence}) >= 2:
+            reasons.append("The same sequence of mistakes appears across multiple students.")
+            suspicion_score += 20
+        if duration_seconds and len({str(item.get('student_name', '')) for item in matching_duration}) >= 2 and percentage >= 80:
+            reasons.append("Multiple students finished in exactly the same time with strong results.")
+            suspicion_score += 15
         if percentage == 100 and duration_seconds and duration_seconds <= max(30, total_questions * 8):
             reasons.append("Perfect score in unusually short time.")
             suspicion_score += 25

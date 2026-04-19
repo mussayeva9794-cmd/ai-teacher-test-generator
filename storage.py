@@ -5,8 +5,10 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import re
 import secrets
 import sqlite3
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -21,7 +23,9 @@ from cloud_sync import (
     delete_cloud_attempt_result,
     delete_cloud_student_draft,
     find_cloud_autosave_record,
+    get_cloud_plan_status,
     is_cloud_enabled,
+    list_cloud_audit_logs,
     list_cloud_api_error_logs,
     list_cloud_attempt_results,
     list_cloud_group_students,
@@ -30,13 +34,16 @@ from cloud_sync import (
     list_cloud_share_links,
     list_cloud_test_history,
     list_cloud_test_library,
+    list_cloud_usage_events,
     load_cloud_attempt_result,
     load_cloud_latest_test_record,
     load_cloud_question_bank_item,
     load_cloud_share_link,
     load_cloud_student_draft,
     load_cloud_test_record,
+    log_cloud_audit_event,
     log_cloud_api_error,
+    record_cloud_usage_event,
     save_cloud_group_student,
     save_cloud_attempt_result,
     save_cloud_question_bank_item,
@@ -45,12 +52,19 @@ from cloud_sync import (
     set_cloud_share_link_status,
     set_cloud_test_archived,
     set_cloud_test_favorite,
+    sync_local_data_to_cloud,
     update_cloud_autosave_record,
     update_cloud_attempt_result,
 )
 
 
 DB_PATH = Path(__file__).resolve().parent / "teacher_history.db"
+EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+def is_valid_email(value: str) -> bool:
+    """Return whether an email looks valid enough for product use."""
+    return bool(EMAIL_RE.match(value.strip().lower()))
 
 
 def get_connection() -> sqlite3.Connection:
@@ -73,7 +87,21 @@ def initialize_database() -> None:
                 display_name TEXT NOT NULL,
                 password_hash TEXT NOT NULL,
                 role TEXT NOT NULL,
+                auth_provider TEXT DEFAULT 'local',
+                auth_user_id TEXT DEFAULT '',
+                plan_name TEXT DEFAULT 'free',
+                account_status TEXT DEFAULT 'active',
+                trial_ends_at TEXT DEFAULT '',
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS schema_meta (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
             )
             """
         )
@@ -169,6 +197,34 @@ def initialize_database() -> None:
 
         connection.execute(
             """
+            CREATE TABLE IF NOT EXISTS audit_logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                actor_email TEXT NOT NULL,
+                actor_role TEXT DEFAULT '',
+                event_type TEXT NOT NULL,
+                target_type TEXT DEFAULT '',
+                target_id TEXT DEFAULT '',
+                details_json TEXT DEFAULT '',
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS usage_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                owner_email TEXT NOT NULL,
+                event_type TEXT NOT NULL,
+                quantity INTEGER NOT NULL DEFAULT 1,
+                context_json TEXT DEFAULT '',
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+
+        connection.execute(
+            """
             CREATE TABLE IF NOT EXISTS share_links (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 token TEXT NOT NULL UNIQUE,
@@ -235,6 +291,22 @@ def initialize_database() -> None:
         ensure_column(connection, "test_attempts", "review_status", "TEXT DEFAULT 'submitted'")
         ensure_column(connection, "test_attempts", "teacher_note", "TEXT DEFAULT ''")
         ensure_column(connection, "test_attempts", "answer_signature", "TEXT DEFAULT ''")
+        for column_name, definition in (
+            ("auth_provider", "TEXT DEFAULT 'local'"),
+            ("auth_user_id", "TEXT DEFAULT ''"),
+            ("plan_name", "TEXT DEFAULT 'free'"),
+            ("account_status", "TEXT DEFAULT 'active'"),
+            ("trial_ends_at", "TEXT DEFAULT ''"),
+        ):
+            ensure_column(connection, "users", column_name, definition)
+
+        connection.execute(
+            """
+            INSERT INTO schema_meta (key, value)
+            VALUES ('schema_version', '4')
+            ON CONFLICT(key) DO UPDATE SET value = '4'
+            """
+        )
 
         for column_name, definition in (
             ("test_uid", "TEXT DEFAULT ''"),
@@ -291,17 +363,28 @@ def create_local_user(email: str, password: str, display_name: str, role: str) -
 
     if not email or not password or not display_name:
         return False, "Email, password, and display name are required."
+    if not is_valid_email(email):
+        return False, "Enter a valid email address."
     if role not in {"teacher", "student"}:
         return False, "Role must be teacher or student."
+    if len(password) < 8:
+        return False, "Password must contain at least 8 characters."
 
     try:
         with get_connection() as connection:
             connection.execute(
                 """
-                INSERT INTO users (email, display_name, password_hash, role)
-                VALUES (?, ?, ?, ?)
+                INSERT INTO users (email, display_name, password_hash, role, plan_name, trial_ends_at)
+                VALUES (?, ?, ?, ?, ?, ?)
                 """,
-                (email, display_name, hash_password(password), role),
+                (
+                    email,
+                    display_name,
+                    hash_password(password),
+                    role,
+                    "trial" if role == "teacher" else "student",
+                    "" if role == "student" else (datetime.now(UTC) + timedelta(days=14)).replace(microsecond=0).isoformat(),
+                ),
             )
     except sqlite3.IntegrityError:
         return False, "A user with this email already exists."
@@ -318,7 +401,7 @@ def authenticate_local_user(email: str, password: str) -> dict[str, Any] | None:
     with get_connection() as connection:
         row = connection.execute(
             """
-            SELECT email, display_name, password_hash, role
+            SELECT email, display_name, password_hash, role, plan_name, account_status, trial_ends_at
             FROM users
             WHERE email = ?
             """,
@@ -332,6 +415,9 @@ def authenticate_local_user(email: str, password: str) -> dict[str, Any] | None:
         "email": row["email"],
         "display_name": row["display_name"],
         "role": row["role"],
+        "plan_name": row["plan_name"],
+        "account_status": row["account_status"],
+        "trial_ends_at": row["trial_ends_at"],
     }
 
 
@@ -1488,3 +1574,148 @@ def list_api_error_logs(limit: int = 30) -> list[dict[str, Any]]:
         item["context"] = json.loads(item.pop("context_json") or "{}")
         items.append(item)
     return items
+
+
+def log_audit_event(
+    actor_email: str,
+    actor_role: str,
+    event_type: str,
+    target_type: str = "",
+    target_id: str = "",
+    details: dict[str, Any] | None = None,
+) -> int:
+    """Store one audit trail event."""
+    if is_cloud_enabled():
+        return log_cloud_audit_event(actor_email, actor_role, event_type, target_type, target_id, details)
+
+    with get_connection() as connection:
+        cursor = connection.execute(
+            """
+            INSERT INTO audit_logs (actor_email, actor_role, event_type, target_type, target_id, details_json)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                actor_email,
+                actor_role,
+                event_type,
+                target_type,
+                target_id,
+                json.dumps(details or {}, ensure_ascii=False),
+            ),
+        )
+        return int(cursor.lastrowid)
+
+
+def list_audit_logs(limit: int = 100, actor_email: str | None = None) -> list[dict[str, Any]]:
+    """Return recent audit events."""
+    if is_cloud_enabled():
+        return list_cloud_audit_logs(limit=limit, actor_email=actor_email)
+
+    query = """
+        SELECT id, actor_email, actor_role, event_type, target_type, target_id, details_json, created_at
+        FROM audit_logs
+    """
+    params: list[Any] = []
+    if actor_email:
+        query += " WHERE actor_email = ?"
+        params.append(actor_email)
+    query += " ORDER BY datetime(created_at) DESC, id DESC LIMIT ?"
+    params.append(limit)
+    with get_connection() as connection:
+        rows = connection.execute(query, params).fetchall()
+    items: list[dict[str, Any]] = []
+    for row in rows:
+        item = dict(row)
+        item["details"] = json.loads(item.pop("details_json") or "{}")
+        items.append(item)
+    return items
+
+
+def record_usage_event(owner_email: str, event_type: str, quantity: int = 1, context: dict[str, Any] | None = None) -> int:
+    """Store one usage event for billing/limits dashboards."""
+    if is_cloud_enabled():
+        return record_cloud_usage_event(owner_email, event_type, quantity, context)
+
+    with get_connection() as connection:
+        cursor = connection.execute(
+            """
+            INSERT INTO usage_events (owner_email, event_type, quantity, context_json)
+            VALUES (?, ?, ?, ?)
+            """,
+            (owner_email, event_type, quantity, json.dumps(context or {}, ensure_ascii=False)),
+        )
+        return int(cursor.lastrowid)
+
+
+def list_usage_events(limit: int = 200, owner_email: str | None = None) -> list[dict[str, Any]]:
+    """Return recent usage events."""
+    if is_cloud_enabled():
+        return list_cloud_usage_events(limit=limit, owner_email=owner_email)
+
+    query = """
+        SELECT id, owner_email, event_type, quantity, context_json, created_at
+        FROM usage_events
+    """
+    params: list[Any] = []
+    if owner_email:
+        query += " WHERE owner_email = ?"
+        params.append(owner_email)
+    query += " ORDER BY datetime(created_at) DESC, id DESC LIMIT ?"
+    params.append(limit)
+    with get_connection() as connection:
+        rows = connection.execute(query, params).fetchall()
+    items: list[dict[str, Any]] = []
+    for row in rows:
+        item = dict(row)
+        item["context"] = json.loads(item.pop("context_json") or "{}")
+        items.append(item)
+    return items
+
+
+def get_plan_status(owner_email: str) -> dict[str, Any]:
+    """Return current plan information and basic quotas for one teacher."""
+    if is_cloud_enabled():
+        return get_cloud_plan_status(owner_email)
+
+    plan_name = "free"
+    trial_ends_at = ""
+    with get_connection() as connection:
+        row = connection.execute(
+            """
+            SELECT plan_name, trial_ends_at, account_status
+            FROM users
+            WHERE email = ?
+            LIMIT 1
+            """,
+            (owner_email,),
+        ).fetchone()
+    if row is not None:
+        plan_name = row["plan_name"] or "free"
+        trial_ends_at = row["trial_ends_at"] or ""
+        account_status = row["account_status"] or "active"
+    else:
+        account_status = "active"
+
+    limits = {
+        "free": {"monthly_generations": 30, "students": 50, "active_tests": 10},
+        "trial": {"monthly_generations": 80, "students": 150, "active_tests": 25},
+        "teacher_pro": {"monthly_generations": 500, "students": 1000, "active_tests": 200},
+        "school": {"monthly_generations": 5000, "students": 10000, "active_tests": 5000},
+        "student": {"monthly_generations": 0, "students": 0, "active_tests": 0},
+    }.get(plan_name, {"monthly_generations": 30, "students": 50, "active_tests": 10})
+    usage_events = list_usage_events(limit=5000, owner_email=owner_email)
+    monthly_generations = sum(item["quantity"] for item in usage_events if item["event_type"] == "generation")
+    return {
+        "plan_name": plan_name,
+        "trial_ends_at": trial_ends_at,
+        "account_status": account_status,
+        "limits": limits,
+        "usage": {"monthly_generations": monthly_generations},
+    }
+
+
+def migrate_local_data_to_cloud(owner_email: str) -> dict[str, int]:
+    """Push local records for one teacher into Supabase when cloud mode is enabled."""
+    if not is_cloud_enabled():
+        return {"users": 0, "tests": 0, "attempts": 0, "groups": 0, "students": 0}
+    return sync_local_data_to_cloud(DB_PATH, owner_email)
