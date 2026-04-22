@@ -437,17 +437,14 @@ def render_theme() -> None:
             --wine: #951122;
             --ink: #100C08;
             --mist: #f7f1ec;
-            --mist-2: #e8ddd4;
-            --card: rgba(22, 15, 11, 0.74);
-            --card-2: rgba(28, 18, 14, 0.84);
+            --mist-2: #dccfc5;
             --line: rgba(149, 17, 34, 0.16);
-            --line-strong: rgba(149, 17, 34, 0.32);
+            --line-strong: rgba(149, 17, 34, 0.34);
             --text-soft: #c8b8ab;
             --shadow: 0 24px 60px rgba(0, 0, 0, 0.22);
         }
 
         .stApp {
-            position: relative;
             background:
                 radial-gradient(circle at 12% 10%, rgba(149, 17, 34, 0.12), transparent 28%),
                 radial-gradient(circle at 88% 16%, rgba(149, 17, 34, 0.10), transparent 24%),
@@ -457,36 +454,7 @@ def render_theme() -> None:
             font-family: "Avenir Next", "SF Pro Display", "Segoe UI", sans-serif;
         }
 
-        .stApp::before {
-            content: "";
-            position: fixed;
-            inset: 0;
-            pointer-events: none;
-            background-image:
-                url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='920' height='720' viewBox='0 0 920 720' fill='none'%3E%3Cpath d='M124 156C238 86 336 88 420 154V530C336 466 238 466 124 530V156Z' stroke='%23951122' stroke-opacity='0.11' stroke-width='2.2'/%3E%3Cpath d='M420 154C502 88 600 86 716 156V530C600 466 502 466 420 530V154Z' stroke='%23951122' stroke-opacity='0.11' stroke-width='2.2'/%3E%3Ccircle cx='700' cy='170' r='70' stroke='%23951122' stroke-opacity='0.10' stroke-width='2'/%3E%3Ccircle cx='700' cy='170' r='18' fill='%23951122' fill-opacity='0.09'/%3E%3Cpath d='M700 84V46M700 294v-38M786 170h38M576 170h38M760 110l28-28M612 258l28-28M760 230l28 28M612 82l28 28' stroke='%23951122' stroke-opacity='0.10' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E");
-            background-repeat: no-repeat;
-            background-position: right -80px top 52px;
-            background-size: min(46vw, 560px);
-            opacity: 0.72;
-            z-index: 0;
-        }
-
-        .stApp::after {
-            content: "";
-            position: fixed;
-            inset: auto auto 8% 5%;
-            width: min(32vw, 360px);
-            height: min(32vw, 360px);
-            border-radius: 999px;
-            background: radial-gradient(circle, rgba(149, 17, 34, 0.14), rgba(149, 17, 34, 0.03) 42%, transparent 68%);
-            filter: blur(18px);
-            pointer-events: none;
-            z-index: 0;
-        }
-
         .block-container {
-            position: relative;
-            z-index: 1;
             padding-top: 1rem;
             padding-bottom: 3rem;
             max-width: 1120px;
@@ -498,7 +466,12 @@ def render_theme() -> None:
             backdrop-filter: blur(22px);
         }
 
-        h1, h2, h3, h4, label, p, span, div {
+        h1, h2, h3, h4,
+        [data-testid="stMarkdownContainer"] p,
+        [data-testid="stMarkdownContainer"] li,
+        [data-testid="stMetricLabel"],
+        [data-testid="stMetricValue"],
+        label {
             color: var(--mist);
         }
 
@@ -516,6 +489,19 @@ def render_theme() -> None:
             backdrop-filter: blur(20px);
         }
 
+        .hero-shell::before {
+            content: "";
+            position: absolute;
+            inset: 0;
+            pointer-events: none;
+            background-image:
+                url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='920' height='720' viewBox='0 0 920 720' fill='none'%3E%3Cpath d='M124 156C238 86 336 88 420 154V530C336 466 238 466 124 530V156Z' stroke='%23ffffff' stroke-opacity='0.07' stroke-width='2.1'/%3E%3Cpath d='M420 154C502 88 600 86 716 156V530C600 466 502 466 420 530V154Z' stroke='%23ffffff' stroke-opacity='0.07' stroke-width='2.1'/%3E%3Ccircle cx='700' cy='170' r='70' stroke='%23ffffff' stroke-opacity='0.06' stroke-width='2'/%3E%3Ccircle cx='700' cy='170' r='18' fill='%23951122' fill-opacity='0.14'/%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right -90px top 28px;
+            background-size: min(42vw, 460px);
+            opacity: 0.9;
+        }
+
         .hero-shell::after {
             content: "";
             position: absolute;
@@ -529,6 +515,8 @@ def render_theme() -> None:
         }
 
         .hero-kicker {
+            position: relative;
+            z-index: 1;
             font-size: 0.66rem;
             letter-spacing: 0.18em;
             text-transform: uppercase;
@@ -537,6 +525,8 @@ def render_theme() -> None:
         }
 
         .hero-title {
+            position: relative;
+            z-index: 1;
             font-size: 2.35rem;
             line-height: 1.02;
             font-weight: 780;
@@ -546,6 +536,8 @@ def render_theme() -> None:
         }
 
         .hero-copy {
+            position: relative;
+            z-index: 1;
             max-width: 620px;
             margin: 0;
             font-size: 0.98rem;
@@ -721,8 +713,8 @@ def render_theme() -> None:
                 padding: 0.95rem;
             }
 
-            .stApp::before {
-                background-position: right -120px top 74px;
+            .hero-shell::before {
+                background-position: right -100px top 36px;
                 background-size: 90vw;
                 opacity: 0.42;
             }
