@@ -436,28 +436,66 @@ def render_theme() -> None:
         :root {
             --wine: #951122;
             --ink: #100C08;
-            --mist: #f5efe9;
-            --mist-2: #eaded4;
-            --card: #17110d;
-            --card-2: #211612;
-            --line: rgba(149, 17, 34, 0.26);
-            --text-soft: #cdbfb3;
+            --mist: #f7f1ec;
+            --mist-2: #e8ddd4;
+            --card: rgba(22, 15, 11, 0.74);
+            --card-2: rgba(28, 18, 14, 0.84);
+            --line: rgba(149, 17, 34, 0.16);
+            --line-strong: rgba(149, 17, 34, 0.32);
+            --text-soft: #c8b8ab;
+            --shadow: 0 24px 60px rgba(0, 0, 0, 0.22);
         }
 
         .stApp {
-            background: linear-gradient(180deg, #0f0c09 0%, #120d09 100%);
+            position: relative;
+            background:
+                radial-gradient(circle at 12% 10%, rgba(149, 17, 34, 0.12), transparent 28%),
+                radial-gradient(circle at 88% 16%, rgba(149, 17, 34, 0.10), transparent 24%),
+                radial-gradient(circle at 50% 100%, rgba(149, 17, 34, 0.07), transparent 28%),
+                linear-gradient(180deg, #0d0907 0%, #120c09 54%, #0f0b08 100%);
             color: var(--mist);
+            font-family: "Avenir Next", "SF Pro Display", "Segoe UI", sans-serif;
+        }
+
+        .stApp::before {
+            content: "";
+            position: fixed;
+            inset: 0;
+            pointer-events: none;
+            background-image:
+                url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='920' height='720' viewBox='0 0 920 720' fill='none'%3E%3Cpath d='M124 156C238 86 336 88 420 154V530C336 466 238 466 124 530V156Z' stroke='%23951122' stroke-opacity='0.11' stroke-width='2.2'/%3E%3Cpath d='M420 154C502 88 600 86 716 156V530C600 466 502 466 420 530V154Z' stroke='%23951122' stroke-opacity='0.11' stroke-width='2.2'/%3E%3Ccircle cx='700' cy='170' r='70' stroke='%23951122' stroke-opacity='0.10' stroke-width='2'/%3E%3Ccircle cx='700' cy='170' r='18' fill='%23951122' fill-opacity='0.09'/%3E%3Cpath d='M700 84V46M700 294v-38M786 170h38M576 170h38M760 110l28-28M612 258l28-28M760 230l28 28M612 82l28 28' stroke='%23951122' stroke-opacity='0.10' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right -80px top 52px;
+            background-size: min(46vw, 560px);
+            opacity: 0.72;
+            z-index: 0;
+        }
+
+        .stApp::after {
+            content: "";
+            position: fixed;
+            inset: auto auto 8% 5%;
+            width: min(32vw, 360px);
+            height: min(32vw, 360px);
+            border-radius: 999px;
+            background: radial-gradient(circle, rgba(149, 17, 34, 0.14), rgba(149, 17, 34, 0.03) 42%, transparent 68%);
+            filter: blur(18px);
+            pointer-events: none;
+            z-index: 0;
         }
 
         .block-container {
-            padding-top: 1.25rem;
+            position: relative;
+            z-index: 1;
+            padding-top: 1rem;
             padding-bottom: 3rem;
-            max-width: 1140px;
+            max-width: 1120px;
         }
 
         [data-testid="stSidebar"] {
-            background: linear-gradient(180deg, rgba(16, 12, 8, 0.98) 0%, rgba(21, 16, 13, 0.98) 100%);
-            border-right: 1px solid var(--line);
+            background: linear-gradient(180deg, rgba(14, 10, 8, 0.94) 0%, rgba(19, 13, 10, 0.94) 100%);
+            border-right: 1px solid rgba(255, 255, 255, 0.04);
+            backdrop-filter: blur(22px);
         }
 
         h1, h2, h3, h4, label, p, span, div {
@@ -465,66 +503,88 @@ def render_theme() -> None:
         }
 
         .hero-shell {
-            border: 1px solid var(--line);
-            border-radius: 20px;
-            padding: 1.15rem 1.25rem;
-            margin-bottom: 0.9rem;
-            background: linear-gradient(180deg, rgba(149, 17, 34, 0.16), rgba(255,255,255,0.015));
-            box-shadow: 0 14px 36px rgba(0, 0, 0, 0.18);
+            position: relative;
+            overflow: hidden;
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            border-radius: 26px;
+            padding: 1.5rem 1.55rem 1.45rem;
+            margin-bottom: 1rem;
+            background:
+                linear-gradient(140deg, rgba(149, 17, 34, 0.22), rgba(255,255,255,0.015) 46%, rgba(255,255,255,0.03) 100%),
+                rgba(17, 12, 9, 0.78);
+            box-shadow: var(--shadow);
+            backdrop-filter: blur(20px);
+        }
+
+        .hero-shell::after {
+            content: "";
+            position: absolute;
+            top: -64px;
+            right: -28px;
+            width: 220px;
+            height: 220px;
+            border-radius: 999px;
+            background: radial-gradient(circle, rgba(149, 17, 34, 0.24), transparent 68%);
+            filter: blur(6px);
         }
 
         .hero-kicker {
-            font-size: 0.72rem;
-            letter-spacing: 0.14em;
+            font-size: 0.66rem;
+            letter-spacing: 0.18em;
             text-transform: uppercase;
-            color: #f1d6d0;
-            margin-bottom: 0.45rem;
-        }
-
-        .hero-title {
-            font-size: 2.15rem;
-            line-height: 1.08;
-            font-weight: 800;
-            margin: 0 0 0.45rem 0;
-            color: #fff8f5;
-        }
-
-        .hero-copy {
-            max-width: 700px;
-            margin: 0;
-            font-size: 0.96rem;
-            line-height: 1.55;
-            color: #dccfc5;
-        }
-
-        .student-shell {
-            margin-top: 0.35rem;
-            background: linear-gradient(180deg, rgba(149, 17, 34, 0.18), rgba(255,255,255,0.02));
-        }
-
-        .section-card {
-            border: 1px solid var(--line);
-            border-radius: 18px;
-            padding: 0.85rem 0.95rem 0.95rem;
-            background: rgba(255,255,255,0.02);
-            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
-            margin-bottom: 0.85rem;
-        }
-
-        .section-label {
-            font-size: 0.72rem;
-            text-transform: uppercase;
-            letter-spacing: 0.14em;
-            color: #d4b8af;
+            color: #e7c9c1;
             margin-bottom: 0.55rem;
         }
 
-        .workspace-hint {
-            border: 1px dashed rgba(205, 191, 179, 0.25);
+        .hero-title {
+            font-size: 2.35rem;
+            line-height: 1.02;
+            font-weight: 780;
+            letter-spacing: -0.04em;
+            margin: 0 0 0.6rem 0;
+            color: #fffaf7;
+        }
+
+        .hero-copy {
+            max-width: 620px;
+            margin: 0;
+            font-size: 0.98rem;
+            line-height: 1.65;
+            color: #d8c8bc;
+        }
+
+        .student-shell {
+            margin-top: 0.3rem;
+            background:
+                linear-gradient(140deg, rgba(149, 17, 34, 0.20), rgba(255,255,255,0.015) 50%, rgba(255,255,255,0.02) 100%),
+                rgba(17, 12, 9, 0.8);
+        }
+
+        .section-card {
+            border: 1px solid rgba(255, 255, 255, 0.06);
             border-radius: 22px;
-            padding: 1.25rem 1.2rem;
-            background: rgba(255,255,255,0.02);
-            margin-top: 0.75rem;
+            padding: 0.95rem 1rem 1.02rem;
+            background: linear-gradient(180deg, rgba(255,255,255,0.028), rgba(255,255,255,0.018));
+            box-shadow: 0 12px 34px rgba(0, 0, 0, 0.16);
+            backdrop-filter: blur(18px);
+            margin-bottom: 0.95rem;
+        }
+
+        .section-label {
+            font-size: 0.64rem;
+            text-transform: uppercase;
+            letter-spacing: 0.18em;
+            color: #cfb0a6;
+            margin-bottom: 0.7rem;
+        }
+
+        .workspace-hint {
+            border: 1px dashed rgba(232, 221, 212, 0.14);
+            border-radius: 24px;
+            padding: 1.35rem 1.3rem;
+            background: linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.015));
+            margin-top: 0.85rem;
+            backdrop-filter: blur(14px);
         }
 
         .workspace-hint strong {
@@ -532,70 +592,110 @@ def render_theme() -> None:
         }
 
         [data-testid="stTabs"] [role="tablist"] {
-            gap: 0.45rem;
-            padding: 0.18rem;
-            background: rgba(255,255,255,0.02);
-            border: 1px solid rgba(205, 191, 179, 0.12);
-            border-radius: 14px;
+            gap: 0.35rem;
+            padding: 0.14rem;
+            background: rgba(255,255,255,0.015);
+            border: 1px solid rgba(255,255,255,0.06);
+            border-radius: 16px;
+            backdrop-filter: blur(12px);
         }
 
         [data-testid="stTabs"] [role="tab"] {
-            border-radius: 10px;
-            padding: 0.5rem 0.85rem;
-            color: var(--mist-2);
+            border-radius: 12px;
+            padding: 0.48rem 0.9rem;
+            color: #d9ccc2;
             background: transparent;
+            transition: all 180ms ease;
+            border: 1px solid transparent;
         }
 
         [data-testid="stTabs"] [aria-selected="true"] {
-            background: linear-gradient(135deg, rgba(149, 17, 34, 0.92), rgba(111, 12, 25, 0.96));
+            background: linear-gradient(135deg, rgba(149, 17, 34, 0.9), rgba(121, 16, 30, 0.94));
             color: white;
+            box-shadow: 0 8px 24px rgba(149, 17, 34, 0.18);
         }
 
         div[data-testid="stMetric"] {
             background: rgba(255,255,255,0.022);
-            border: 1px solid rgba(205, 191, 179, 0.12);
-            border-radius: 14px;
-            padding: 0.72rem 0.82rem;
+            border: 1px solid rgba(255,255,255,0.06);
+            border-radius: 18px;
+            padding: 0.78rem 0.88rem;
+            box-shadow: inset 0 1px 0 rgba(255,255,255,0.03);
         }
 
         div[data-baseweb="input"] > div,
         div[data-baseweb="select"] > div,
         .stTextArea textarea {
-            background: rgba(255,255,255,0.04) !important;
-            border-color: rgba(205, 191, 179, 0.16) !important;
-            border-radius: 14px !important;
+            background: rgba(255,255,255,0.035) !important;
+            border-color: rgba(255,255,255,0.08) !important;
+            border-radius: 16px !important;
             color: #fff8f5 !important;
+            box-shadow: none !important;
+            transition: border-color 180ms ease, background 180ms ease, transform 180ms ease !important;
+        }
+
+        div[data-baseweb="input"] > div:focus-within,
+        div[data-baseweb="select"] > div:focus-within,
+        .stTextArea textarea:focus {
+            border-color: var(--line-strong) !important;
+            background: rgba(255,255,255,0.05) !important;
         }
 
         .stSlider [data-baseweb="slider"] [role="slider"] {
             background-color: var(--wine);
+            box-shadow: 0 0 0 6px rgba(149, 17, 34, 0.12);
         }
 
         .stButton > button,
         .stDownloadButton > button {
-            border-radius: 12px;
+            border-radius: 16px;
             border: 1px solid rgba(255,255,255,0.08);
-            background: linear-gradient(135deg, var(--wine), #6d0e1c);
+            background: linear-gradient(135deg, var(--wine), #6f0e1d);
             color: #fff7f4;
-            min-height: 2.65rem;
+            min-height: 2.8rem;
+            box-shadow: 0 14px 26px rgba(149, 17, 34, 0.16);
+            transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease, filter 180ms ease;
         }
 
         .stButton > button:hover,
         .stDownloadButton > button:hover {
             border-color: rgba(255,255,255,0.18);
-            background: linear-gradient(135deg, #a51629, #7d1420);
+            background: linear-gradient(135deg, #a91529, #7e1421);
+            transform: translateY(-2px) scale(1.01);
+            box-shadow: 0 18px 32px rgba(149, 17, 34, 0.24);
+            filter: saturate(1.06);
+        }
+
+        .stButton > button:active,
+        .stDownloadButton > button:active {
+            transform: translateY(0) scale(0.988);
         }
 
         .stExpander {
-            border: 1px solid rgba(205, 191, 179, 0.12) !important;
+            border: 1px solid rgba(255,255,255,0.06) !important;
             border-radius: 18px !important;
-            background: rgba(255,255,255,0.02);
+            background: rgba(255,255,255,0.018);
+            backdrop-filter: blur(12px);
         }
 
         [data-testid="stDataFrame"], [data-testid="stTable"] {
             border-radius: 18px;
             overflow: hidden;
-            border: 1px solid rgba(205, 191, 179, 0.10);
+            border: 1px solid rgba(255,255,255,0.06);
+            background: rgba(255,255,255,0.02);
+        }
+
+        [data-testid="stDataFrame"] * {
+            border-color: rgba(255,255,255,0.05) !important;
+        }
+
+        [data-testid="stPopover"] {
+            backdrop-filter: blur(18px);
+        }
+
+        .stAlert {
+            border-radius: 18px;
+            border: 1px solid rgba(255,255,255,0.06);
         }
 
         #MainMenu,
@@ -612,13 +712,19 @@ def render_theme() -> None:
             }
 
             .hero-title {
-                font-size: 1.55rem;
+                font-size: 1.7rem;
             }
 
             .hero-shell,
             .section-card {
                 border-radius: 16px;
                 padding: 0.95rem;
+            }
+
+            .stApp::before {
+                background-position: right -120px top 74px;
+                background-size: 90vw;
+                opacity: 0.42;
             }
         }
         </style>
@@ -632,10 +738,10 @@ def render_header() -> None:
     st.markdown(
         """
         <div class="hero-shell">
-            <div class="hero-kicker">Focused Teacher Workspace</div>
+            <div class="hero-kicker">Teacher Studio</div>
             <div class="hero-title">AI Teacher Test Generator</div>
             <p class="hero-copy">
-                Create, edit, share, and analyze tests in a calmer workflow with less visual clutter.
+                A quieter workspace for building classroom tests, guiding students, and reading the signal behind their results.
             </p>
         </div>
         """,
