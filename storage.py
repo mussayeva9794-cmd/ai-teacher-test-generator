@@ -76,6 +76,38 @@ def get_connection() -> sqlite3.Connection:
     return connection
 
 
+def _write_local_api_error(provider: str, error_message: str, context: dict[str, Any] | None = None) -> None:
+    """Write an error directly to the local SQLite log without touching cloud code."""
+    try:
+        with get_connection() as connection:
+            connection.execute(
+                """
+                INSERT INTO api_error_logs (provider, error_message, context_json)
+                VALUES (?, ?, ?)
+                """,
+                (
+                    provider,
+                    error_message,
+                    json.dumps(context or {}, ensure_ascii=False),
+                ),
+            )
+    except Exception:
+        return
+
+
+def _try_cloud_call(operation: str, func: Any, *args: Any, **kwargs: Any) -> tuple[bool, Any]:
+    """Try one cloud operation and fall back gracefully on failure."""
+    try:
+        return True, func(*args, **kwargs)
+    except Exception as error:
+        _write_local_api_error(
+            "supabase",
+            f"{operation} failed",
+            {"error": str(error)},
+        )
+        return False, None
+
+
 def initialize_database() -> None:
     """Create all project tables if they do not exist."""
     with get_connection() as connection:
@@ -354,9 +386,6 @@ def verify_password(password: str, stored_value: str) -> bool:
 
 def create_local_user(email: str, password: str, display_name: str, role: str) -> tuple[bool, str]:
     """Create a local user profile."""
-    if is_cloud_enabled():
-        return create_cloud_user(email, password, display_name, role)
-
     email = email.strip().lower()
     display_name = display_name.strip()
     role = role.strip().lower()
@@ -369,6 +398,11 @@ def create_local_user(email: str, password: str, display_name: str, role: str) -
         return False, "Role must be teacher or student."
     if len(password) < 8:
         return False, "Password must contain at least 8 characters."
+
+    if is_cloud_enabled():
+        ok, result = _try_cloud_call("create_cloud_user", create_cloud_user, email, password, display_name, role)
+        if ok:
+            return result
 
     try:
         with get_connection() as connection:
@@ -395,7 +429,9 @@ def create_local_user(email: str, password: str, display_name: str, role: str) -
 def authenticate_local_user(email: str, password: str) -> dict[str, Any] | None:
     """Authenticate a local user."""
     if is_cloud_enabled():
-        return authenticate_cloud_user(email, password)
+        ok, result = _try_cloud_call("authenticate_cloud_user", authenticate_cloud_user, email, password)
+        if ok:
+            return result
 
     email = email.strip().lower()
     with get_connection() as connection:
@@ -442,7 +478,9 @@ def save_test_record(
 ) -> int:
     """Insert a test snapshot into history and return its ID."""
     if is_cloud_enabled():
-        return save_cloud_test_record(
+        ok, result = _try_cloud_call(
+            "save_cloud_test_record",
+            save_cloud_test_record,
             {
                 "test_uid": test_uid,
                 "title": title,
@@ -460,8 +498,10 @@ def save_test_record(
                 "archived": archived,
                 "is_autosave": is_autosave,
                 "payload": payload,
-            }
+            },
         )
+        if ok:
+            return int(result)
 
     with get_connection() as connection:
         cursor = connection.execute(
@@ -527,27 +567,38 @@ def upsert_autosave_record(
 ) -> int:
     """Create or update one autosave draft record for a test."""
     if is_cloud_enabled():
-        row = find_cloud_autosave_record(test_uid, owner_email)
-        record = {
-            "test_uid": test_uid,
-            "title": title,
-            "topic": topic,
-            "language": language,
-            "difficulty": difficulty,
-            "test_type": test_type,
-            "grade_level": grade_level,
-            "assessment_purpose": assessment_purpose,
-            "owner_email": owner_email,
-            "source_kind": source_kind,
-            "source_name": source_name or "",
-            "subject_tags": subject_tags,
-            "is_favorite": is_favorite,
-            "is_autosave": True,
-            "payload": payload,
-        }
-        if row is None:
-            return save_cloud_test_record(record)
-        return update_cloud_autosave_record(int(row["id"]), record)
+        ok, row = _try_cloud_call("find_cloud_autosave_record", find_cloud_autosave_record, test_uid, owner_email)
+        if ok:
+            record = {
+                "test_uid": test_uid,
+                "title": title,
+                "topic": topic,
+                "language": language,
+                "difficulty": difficulty,
+                "test_type": test_type,
+                "grade_level": grade_level,
+                "assessment_purpose": assessment_purpose,
+                "owner_email": owner_email,
+                "source_kind": source_kind,
+                "source_name": source_name or "",
+                "subject_tags": subject_tags,
+                "is_favorite": is_favorite,
+                "is_autosave": True,
+                "payload": payload,
+            }
+            if row is None:
+                ok_save, result = _try_cloud_call("save_cloud_test_record", save_cloud_test_record, record)
+                if ok_save:
+                    return int(result)
+            else:
+                ok_update, result = _try_cloud_call(
+                    "update_cloud_autosave_record",
+                    update_cloud_autosave_record,
+                    int(row["id"]),
+                    record,
+                )
+                if ok_update:
+                    return int(result)
 
     with get_connection() as connection:
         row = connection.execute(
@@ -621,7 +672,9 @@ def upsert_autosave_record(
 def list_test_history(limit: int = 20, owner_email: str | None = None) -> list[dict[str, Any]]:
     """Return recent history entries."""
     if is_cloud_enabled():
-        return list_cloud_test_history(limit=limit, owner_email=owner_email)
+        ok, result = _try_cloud_call("list_cloud_test_history", list_cloud_test_history, limit=limit, owner_email=owner_email)
+        if ok:
+            return result
 
     query = """
         SELECT
@@ -671,7 +724,9 @@ def list_test_library(
 ) -> list[dict[str, Any]]:
     """Return one latest non-autosave snapshot per test UID for the teacher library."""
     if is_cloud_enabled():
-        return list_cloud_test_library(
+        ok, result = _try_cloud_call(
+            "list_cloud_test_library",
+            list_cloud_test_library,
             owner_email=owner_email,
             search=search,
             language=language,
@@ -682,6 +737,8 @@ def list_test_library(
             favorites_only=favorites_only,
             sort_by=sort_by,
         )
+        if ok:
+            return result
 
     query = """
         SELECT th.*
@@ -733,7 +790,9 @@ def list_test_library(
 def load_test_record(record_id: int) -> dict[str, Any] | None:
     """Load a specific saved test payload."""
     if is_cloud_enabled():
-        return load_cloud_test_record(record_id)
+        ok, result = _try_cloud_call("load_cloud_test_record", load_cloud_test_record, record_id)
+        if ok:
+            return result
 
     with get_connection() as connection:
         row = connection.execute(
@@ -752,7 +811,9 @@ def load_test_record(record_id: int) -> dict[str, Any] | None:
 def load_latest_test_record(test_uid: str, owner_email: str) -> dict[str, Any] | None:
     """Load the latest non-autosave record for a test UID."""
     if is_cloud_enabled():
-        return load_cloud_latest_test_record(test_uid, owner_email)
+        ok, result = _try_cloud_call("load_cloud_latest_test_record", load_cloud_latest_test_record, test_uid, owner_email)
+        if ok:
+            return result
 
     with get_connection() as connection:
         row = connection.execute(
@@ -773,8 +834,9 @@ def load_latest_test_record(test_uid: str, owner_email: str) -> dict[str, Any] |
 def set_test_archived(test_uid: str, owner_email: str, archived: bool) -> None:
     """Archive or unarchive all snapshots for a test."""
     if is_cloud_enabled():
-        set_cloud_test_archived(test_uid, owner_email, archived)
-        return
+        ok, _ = _try_cloud_call("set_cloud_test_archived", set_cloud_test_archived, test_uid, owner_email, archived)
+        if ok:
+            return
 
     with get_connection() as connection:
         connection.execute(
@@ -790,8 +852,9 @@ def set_test_archived(test_uid: str, owner_email: str, archived: bool) -> None:
 def set_test_favorite(test_uid: str, owner_email: str, is_favorite: bool) -> None:
     """Mark a test as favorite or remove the favorite flag."""
     if is_cloud_enabled():
-        set_cloud_test_favorite(test_uid, owner_email, is_favorite)
-        return
+        ok, _ = _try_cloud_call("set_cloud_test_favorite", set_cloud_test_favorite, test_uid, owner_email, is_favorite)
+        if ok:
+            return
 
     with get_connection() as connection:
         connection.execute(
@@ -815,7 +878,9 @@ def save_question_bank_item(
 ) -> int:
     """Save a question into the local question bank."""
     if is_cloud_enabled():
-        return save_cloud_question_bank_item(
+        ok, result = _try_cloud_call(
+            "save_cloud_question_bank_item",
+            save_cloud_question_bank_item,
             {
                 "question_text": question_text,
                 "question_type": question_type,
@@ -823,8 +888,10 @@ def save_question_bank_item(
                 "skill_tag": skill_tag,
                 "owner_email": owner_email,
                 "payload": payload,
-            }
+            },
         )
+        if ok:
+            return int(result)
 
     with get_connection() as connection:
         cursor = connection.execute(
@@ -853,7 +920,9 @@ def save_question_bank_item(
 def list_question_bank(limit: int = 50, owner_email: str | None = None) -> list[dict[str, Any]]:
     """List saved question bank items."""
     if is_cloud_enabled():
-        return list_cloud_question_bank(limit=limit, owner_email=owner_email)
+        ok, result = _try_cloud_call("list_cloud_question_bank", list_cloud_question_bank, limit=limit, owner_email=owner_email)
+        if ok:
+            return result
 
     query = """
         SELECT
@@ -881,7 +950,9 @@ def list_question_bank(limit: int = 50, owner_email: str | None = None) -> list[
 def load_question_bank_item(record_id: int) -> dict[str, Any] | None:
     """Load one question bank item."""
     if is_cloud_enabled():
-        return load_cloud_question_bank_item(record_id)
+        ok, result = _try_cloud_call("load_cloud_question_bank_item", load_cloud_question_bank_item, record_id)
+        if ok:
+            return result
 
     with get_connection() as connection:
         row = connection.execute(
@@ -915,7 +986,9 @@ def save_attempt_result(
 ) -> int:
     """Save a student attempt."""
     if is_cloud_enabled():
-        return save_cloud_attempt_result(
+        ok, result = _try_cloud_call(
+            "save_cloud_attempt_result",
+            save_cloud_attempt_result,
             {
                 "student_name": student_name,
                 "student_key": student_key,
@@ -930,8 +1003,10 @@ def save_attempt_result(
                 "answer_signature": answer_signature,
                 "percentage": percentage,
                 "payload": payload,
-            }
+            },
         )
+        if ok:
+            return int(result)
 
     with get_connection() as connection:
         cursor = connection.execute(
@@ -979,12 +1054,16 @@ def list_attempt_results(
 ) -> list[dict[str, Any]]:
     """List recent student attempts."""
     if is_cloud_enabled():
-        return list_cloud_attempt_results(
+        ok, result = _try_cloud_call(
+            "list_cloud_attempt_results",
+            list_cloud_attempt_results,
             limit=limit,
             owner_email=owner_email,
             test_uid=test_uid,
             student_name=student_name,
         )
+        if ok:
+            return result
 
     query = """
         SELECT
@@ -1036,7 +1115,9 @@ def list_attempt_results(
 def load_attempt_result(attempt_id: int) -> dict[str, Any] | None:
     """Load one attempt with full metadata."""
     if is_cloud_enabled():
-        return load_cloud_attempt_result(attempt_id)
+        ok, result = _try_cloud_call("load_cloud_attempt_result", load_cloud_attempt_result, attempt_id)
+        if ok:
+            return result
 
     with get_connection() as connection:
         row = connection.execute(
@@ -1081,13 +1162,17 @@ def update_attempt_result(
 ) -> bool:
     """Update one attempt after teacher review."""
     if is_cloud_enabled():
-        return update_cloud_attempt_result(
+        ok, result = _try_cloud_call(
+            "update_cloud_attempt_result",
+            update_cloud_attempt_result,
             attempt_id=attempt_id,
             student_name=student_name,
             percentage=percentage,
             review_status=review_status,
             teacher_note=teacher_note,
         )
+        if ok:
+            return bool(result)
 
     current = load_attempt_result(attempt_id)
     if current is None:
@@ -1127,7 +1212,9 @@ def update_attempt_result(
 def delete_attempt_result(attempt_id: int) -> bool:
     """Delete one attempt record."""
     if is_cloud_enabled():
-        return delete_cloud_attempt_result(attempt_id)
+        ok, result = _try_cloud_call("delete_cloud_attempt_result", delete_cloud_attempt_result, attempt_id)
+        if ok:
+            return bool(result)
 
     with get_connection() as connection:
         cursor = connection.execute("DELETE FROM test_attempts WHERE id = ?", (attempt_id,))
@@ -1137,7 +1224,9 @@ def delete_attempt_result(attempt_id: int) -> bool:
 def count_share_attempts(token: str, student_name: str = "") -> int:
     """Count attempts for a share link, optionally scoped to one student."""
     if is_cloud_enabled():
-        return count_cloud_share_attempts(token, student_name)
+        ok, result = _try_cloud_call("count_cloud_share_attempts", count_cloud_share_attempts, token, student_name)
+        if ok:
+            return int(result)
 
     query = "SELECT COUNT(*) FROM test_attempts WHERE share_token = ?"
     params: list[Any] = [token]
@@ -1155,7 +1244,14 @@ def count_share_attempts(token: str, student_name: str = "") -> int:
 def count_share_attempts_for_student_key(token: str, student_key: str) -> int:
     """Count attempts for one authenticated student identity."""
     if is_cloud_enabled():
-        return count_cloud_share_attempts_for_student_key(token, student_key)
+        ok, result = _try_cloud_call(
+            "count_cloud_share_attempts_for_student_key",
+            count_cloud_share_attempts_for_student_key,
+            token,
+            student_key,
+        )
+        if ok:
+            return int(result)
 
     if not token.strip() or not student_key.strip():
         return 0
@@ -1174,7 +1270,9 @@ def count_share_attempts_for_student_key(token: str, student_key: str) -> int:
 def attempt_submission_exists(submission_key: str) -> bool:
     """Return whether this submission fingerprint already exists."""
     if is_cloud_enabled():
-        return cloud_attempt_submission_exists(submission_key)
+        ok, result = _try_cloud_call("cloud_attempt_submission_exists", cloud_attempt_submission_exists, submission_key)
+        if ok:
+            return bool(result)
 
     if not submission_key.strip():
         return False
@@ -1198,7 +1296,9 @@ def create_share_link(
 ) -> str:
     """Create a share token for student access."""
     if is_cloud_enabled():
-        return create_cloud_share_link(
+        ok, result = _try_cloud_call(
+            "create_cloud_share_link",
+            create_cloud_share_link,
             test_uid=test_uid,
             title=title,
             variant_name=variant_name,
@@ -1207,6 +1307,8 @@ def create_share_link(
             max_attempts=max_attempts,
             deadline_at=deadline_at,
         )
+        if ok and result:
+            return str(result)
 
     token = secrets.token_urlsafe(18)
     with get_connection() as connection:
@@ -1244,7 +1346,15 @@ def list_share_links(
 ) -> list[dict[str, Any]]:
     """List recent share links."""
     if is_cloud_enabled():
-        return list_cloud_share_links(limit=limit, owner_email=owner_email, test_uid=test_uid)
+        ok, result = _try_cloud_call(
+            "list_cloud_share_links",
+            list_cloud_share_links,
+            limit=limit,
+            owner_email=owner_email,
+            test_uid=test_uid,
+        )
+        if ok:
+            return result
 
     query = """
         SELECT
@@ -1281,7 +1391,9 @@ def list_share_links(
 def load_share_link(token: str) -> dict[str, Any] | None:
     """Load a share link by token."""
     if is_cloud_enabled():
-        return load_cloud_share_link(token)
+        ok, result = _try_cloud_call("load_cloud_share_link", load_cloud_share_link, token)
+        if ok:
+            return result
 
     with get_connection() as connection:
         row = connection.execute(
@@ -1302,8 +1414,9 @@ def load_share_link(token: str) -> dict[str, Any] | None:
 def set_share_link_status(token: str, is_active: bool) -> None:
     """Activate or deactivate a share link."""
     if is_cloud_enabled():
-        set_cloud_share_link_status(token, is_active)
-        return
+        ok, _ = _try_cloud_call("set_cloud_share_link_status", set_cloud_share_link_status, token, is_active)
+        if ok:
+            return
 
     with get_connection() as connection:
         connection.execute(
@@ -1319,8 +1432,9 @@ def set_share_link_status(token: str, is_active: bool) -> None:
 def save_student_draft(share_token: str, student_name: str, payload: dict[str, Any]) -> None:
     """Create or update a draft for one student/share combination."""
     if is_cloud_enabled():
-        save_cloud_student_draft(share_token, student_name, payload)
-        return
+        ok, _ = _try_cloud_call("save_cloud_student_draft", save_cloud_student_draft, share_token, student_name, payload)
+        if ok:
+            return
 
     clean_name = student_name.strip()
     if not share_token.strip() or not clean_name:
@@ -1340,7 +1454,9 @@ def save_student_draft(share_token: str, student_name: str, payload: dict[str, A
 def load_student_draft(share_token: str, student_name: str) -> dict[str, Any] | None:
     """Load a saved draft for one student/share combination."""
     if is_cloud_enabled():
-        return load_cloud_student_draft(share_token, student_name)
+        ok, result = _try_cloud_call("load_cloud_student_draft", load_cloud_student_draft, share_token, student_name)
+        if ok:
+            return result
 
     clean_name = student_name.strip()
     if not share_token.strip() or not clean_name:
@@ -1363,8 +1479,9 @@ def load_student_draft(share_token: str, student_name: str) -> dict[str, Any] | 
 def delete_student_draft(share_token: str, student_name: str) -> None:
     """Delete a saved student draft after successful submission."""
     if is_cloud_enabled():
-        delete_cloud_student_draft(share_token, student_name)
-        return
+        ok, _ = _try_cloud_call("delete_cloud_student_draft", delete_cloud_student_draft, share_token, student_name)
+        if ok:
+            return
 
     clean_name = student_name.strip()
     if not share_token.strip() or not clean_name:
@@ -1388,12 +1505,16 @@ def create_student_group(
 ) -> int:
     """Create one teacher group or class."""
     if is_cloud_enabled():
-        return create_cloud_student_group(
+        ok, result = _try_cloud_call(
+            "create_cloud_student_group",
+            create_cloud_student_group,
             owner_email=owner_email,
             name=name,
             grade_level=grade_level,
             description=description,
         )
+        if ok:
+            return int(result)
 
     with get_connection() as connection:
         cursor = connection.execute(
@@ -1409,7 +1530,9 @@ def create_student_group(
 def list_student_groups(owner_email: str) -> list[dict[str, Any]]:
     """List teacher groups."""
     if is_cloud_enabled():
-        return list_cloud_student_groups(owner_email=owner_email)
+        ok, result = _try_cloud_call("list_cloud_student_groups", list_cloud_student_groups, owner_email=owner_email)
+        if ok:
+            return result
 
     with get_connection() as connection:
         rows = connection.execute(
@@ -1435,7 +1558,9 @@ def save_group_student(
 ) -> int:
     """Add one student to a group."""
     if is_cloud_enabled():
-        return save_cloud_group_student(
+        ok, result = _try_cloud_call(
+            "save_cloud_group_student",
+            save_cloud_group_student,
             owner_email=owner_email,
             group_id=group_id,
             full_name=full_name,
@@ -1443,6 +1568,8 @@ def save_group_student(
             external_id=external_id,
             notes=notes,
         )
+        if ok:
+            return int(result)
 
     clean_name = full_name.strip()
     clean_email = email.strip().lower()
@@ -1505,7 +1632,14 @@ def import_group_students(
 def list_group_students(owner_email: str, group_id: int | None = None) -> list[dict[str, Any]]:
     """List imported roster students."""
     if is_cloud_enabled():
-        return list_cloud_group_students(owner_email=owner_email, group_id=group_id)
+        ok, result = _try_cloud_call(
+            "list_cloud_group_students",
+            list_cloud_group_students,
+            owner_email=owner_email,
+            group_id=group_id,
+        )
+        if ok:
+            return result
 
     query = """
         SELECT
@@ -1536,7 +1670,9 @@ def list_group_students(owner_email: str, group_id: int | None = None) -> list[d
 def log_api_error(provider: str, error_message: str, context: dict[str, Any] | None = None) -> int:
     """Store an API failure for later inspection."""
     if is_cloud_enabled():
-        return log_cloud_api_error(provider, error_message, context)
+        ok, result = _try_cloud_call("log_cloud_api_error", log_cloud_api_error, provider, error_message, context)
+        if ok:
+            return int(result)
 
     with get_connection() as connection:
         cursor = connection.execute(
@@ -1556,7 +1692,9 @@ def log_api_error(provider: str, error_message: str, context: dict[str, Any] | N
 def list_api_error_logs(limit: int = 30) -> list[dict[str, Any]]:
     """Return recent API failures."""
     if is_cloud_enabled():
-        return list_cloud_api_error_logs(limit)
+        ok, result = _try_cloud_call("list_cloud_api_error_logs", list_cloud_api_error_logs, limit)
+        if ok:
+            return result
 
     with get_connection() as connection:
         rows = connection.execute(
@@ -1586,7 +1724,18 @@ def log_audit_event(
 ) -> int:
     """Store one audit trail event."""
     if is_cloud_enabled():
-        return log_cloud_audit_event(actor_email, actor_role, event_type, target_type, target_id, details)
+        ok, result = _try_cloud_call(
+            "log_cloud_audit_event",
+            log_cloud_audit_event,
+            actor_email,
+            actor_role,
+            event_type,
+            target_type,
+            target_id,
+            details,
+        )
+        if ok:
+            return int(result)
 
     with get_connection() as connection:
         cursor = connection.execute(
@@ -1609,7 +1758,9 @@ def log_audit_event(
 def list_audit_logs(limit: int = 100, actor_email: str | None = None) -> list[dict[str, Any]]:
     """Return recent audit events."""
     if is_cloud_enabled():
-        return list_cloud_audit_logs(limit=limit, actor_email=actor_email)
+        ok, result = _try_cloud_call("list_cloud_audit_logs", list_cloud_audit_logs, limit=limit, actor_email=actor_email)
+        if ok:
+            return result
 
     query = """
         SELECT id, actor_email, actor_role, event_type, target_type, target_id, details_json, created_at
@@ -1634,7 +1785,9 @@ def list_audit_logs(limit: int = 100, actor_email: str | None = None) -> list[di
 def record_usage_event(owner_email: str, event_type: str, quantity: int = 1, context: dict[str, Any] | None = None) -> int:
     """Store one usage event for billing/limits dashboards."""
     if is_cloud_enabled():
-        return record_cloud_usage_event(owner_email, event_type, quantity, context)
+        ok, result = _try_cloud_call("record_cloud_usage_event", record_cloud_usage_event, owner_email, event_type, quantity, context)
+        if ok:
+            return int(result)
 
     with get_connection() as connection:
         cursor = connection.execute(
@@ -1650,7 +1803,9 @@ def record_usage_event(owner_email: str, event_type: str, quantity: int = 1, con
 def list_usage_events(limit: int = 200, owner_email: str | None = None) -> list[dict[str, Any]]:
     """Return recent usage events."""
     if is_cloud_enabled():
-        return list_cloud_usage_events(limit=limit, owner_email=owner_email)
+        ok, result = _try_cloud_call("list_cloud_usage_events", list_cloud_usage_events, limit=limit, owner_email=owner_email)
+        if ok:
+            return result
 
     query = """
         SELECT id, owner_email, event_type, quantity, context_json, created_at
@@ -1675,7 +1830,9 @@ def list_usage_events(limit: int = 200, owner_email: str | None = None) -> list[
 def get_plan_status(owner_email: str) -> dict[str, Any]:
     """Return current plan information and basic quotas for one teacher."""
     if is_cloud_enabled():
-        return get_cloud_plan_status(owner_email)
+        ok, result = _try_cloud_call("get_cloud_plan_status", get_cloud_plan_status, owner_email)
+        if ok:
+            return result
 
     plan_name = "free"
     trial_ends_at = ""
@@ -1718,4 +1875,7 @@ def migrate_local_data_to_cloud(owner_email: str) -> dict[str, int]:
     """Push local records for one teacher into Supabase when cloud mode is enabled."""
     if not is_cloud_enabled():
         return {"users": 0, "tests": 0, "attempts": 0, "groups": 0, "students": 0}
-    return sync_local_data_to_cloud(DB_PATH, owner_email)
+    ok, result = _try_cloud_call("sync_local_data_to_cloud", sync_local_data_to_cloud, DB_PATH, owner_email)
+    if ok:
+        return result
+    return {"users": 0, "tests": 0, "attempts": 0, "groups": 0, "students": 0}
