@@ -867,10 +867,25 @@ def render_share_links_sidebar() -> None:
         if notice:
             st.caption(notice)
 
+        current_test_uid = get_current_test_uid()
+        if not current_test_uid:
+            st.caption("Create or load a test first to manage share links.")
+            return
+
+        load_links = st.checkbox(
+            "Load current test links",
+            value=False,
+            key="share_sidebar_load_links",
+            help="Loads share-link data only when needed, which keeps the app opening faster.",
+        )
+        if not load_links:
+            st.caption("Link data is paused to keep startup fast.")
+            return
+
         links = list_share_links(
             limit=20,
             owner_email=get_owner_email(),
-            test_uid=get_current_test_uid() or None,
+            test_uid=current_test_uid,
         )
         if not links:
             st.info("No shared links yet for the current test.")
@@ -3701,6 +3716,16 @@ def render_history_sidebar() -> None:
         if notice:
             st.caption(notice)
 
+        load_history = st.checkbox(
+            "Load recent tests",
+            value=False,
+            key="history_sidebar_load",
+            help="Loads the recent test list only when you need it, so the app opens faster.",
+        )
+        if not load_history:
+            st.caption("Recent tests are hidden until you ask for them.")
+            return
+
         query = st.text_input("Search history", placeholder="Search by title or topic")
         history_items = list_test_library(owner_email=get_owner_email(), include_archived=False)
         if query.strip():
@@ -3895,6 +3920,16 @@ def render_question_bank_sidebar() -> None:
         if notice:
             st.caption(notice)
 
+        load_bank = st.checkbox(
+            "Load saved questions",
+            value=False,
+            key="question_bank_sidebar_load",
+            help="Loads saved question data only on demand to keep the first screen responsive.",
+        )
+        if not load_bank:
+            st.caption("Saved questions are hidden until you ask for them.")
+            return
+
         search = st.text_input("Search bank", placeholder="Search questions", key="bank_search")
         items = list_question_bank(limit=30, owner_email=get_owner_email())
         if search.strip():
@@ -4020,12 +4055,20 @@ The suggested demo order is:
         )
         if st.button("Prepare demo accounts and attempts", use_container_width=True):
             st.success(prepare_demo_accounts_and_attempts())
-        logs = list_api_error_logs(limit=5)
-        if logs:
-            with st.expander("Recent API errors", expanded=False):
-                for item in logs:
-                    st.caption(f"{item['created_at']} | {item['provider']}")
-                    st.write(item["error_message"])
+        if st.checkbox(
+            "Load recent API errors",
+            value=False,
+            key="defense_load_api_errors",
+            help="API error logs are loaded only on request to avoid slowing the app startup.",
+        ):
+            logs = list_api_error_logs(limit=5)
+            if logs:
+                with st.expander("Recent API errors", expanded=False):
+                    for item in logs:
+                        st.caption(f"{item['created_at']} | {item['provider']}")
+                        st.write(item["error_message"])
+            else:
+                st.caption("No recent API errors found.")
 
 
 
