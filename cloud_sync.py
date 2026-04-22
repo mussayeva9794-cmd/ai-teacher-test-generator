@@ -49,6 +49,24 @@ def get_cloud_status() -> dict[str, Any]:
     }
 
 
+def _default_plan_status(plan_name: str = "free") -> dict[str, Any]:
+    """Return a safe default billing/usage structure."""
+    limits = {
+        "free": {"monthly_generations": 30, "students": 50, "active_tests": 10},
+        "trial": {"monthly_generations": 80, "students": 150, "active_tests": 25},
+        "teacher_pro": {"monthly_generations": 500, "students": 1000, "active_tests": 200},
+        "school": {"monthly_generations": 5000, "students": 10000, "active_tests": 5000},
+        "student": {"monthly_generations": 0, "students": 0, "active_tests": 0},
+    }.get(plan_name, {"monthly_generations": 30, "students": 50, "active_tests": 10})
+    return {
+        "plan_name": plan_name,
+        "trial_ends_at": "",
+        "account_status": "active",
+        "limits": limits,
+        "usage": {"monthly_generations": 0},
+    }
+
+
 def _result_data(response: Any) -> list[dict[str, Any]]:
     """Normalize Supabase result payload."""
     data = getattr(response, "data", None)
@@ -104,19 +122,29 @@ def create_cloud_user(email: str, password: str, display_name: str, role: str) -
     if existing:
         return False, "A user with this email already exists."
 
-    client.table("app_users").insert(
-        {
-            "email": email,
-            "display_name": display_name,
-            "password_hash": _hash_password(password),
-            "role": role,
-            "auth_provider": "local",
-            "auth_user_id": "",
-            "plan_name": "trial" if role == "teacher" else "student",
-            "account_status": "active",
-            "trial_ends_at": "" if role == "student" else (datetime.now(UTC) + timedelta(days=14)).replace(microsecond=0).isoformat(),
-        }
-    ).execute()
+    payload = {
+        "email": email,
+        "display_name": display_name,
+        "password_hash": _hash_password(password),
+        "role": role,
+        "auth_provider": "local",
+        "auth_user_id": "",
+        "plan_name": "trial" if role == "teacher" else "student",
+        "account_status": "active",
+        "trial_ends_at": "" if role == "student" else (datetime.now(UTC) + timedelta(days=14)).replace(microsecond=0).isoformat(),
+    }
+    try:
+        client.table("app_users").insert(payload).execute()
+    except Exception:
+        # Older Supabase schemas may not yet include the commercial/auth columns.
+        client.table("app_users").insert(
+            {
+                "email": email,
+                "display_name": display_name,
+                "password_hash": payload["password_hash"],
+                "role": role,
+            }
+        ).execute()
     return True, "Profile created successfully."
 
 
@@ -124,13 +152,22 @@ def authenticate_cloud_user(email: str, password: str) -> dict[str, Any] | None:
     """Authenticate a Supabase-backed user profile."""
     client = get_client()
     email = email.strip().lower()
-    rows = _result_data(
-        client.table("app_users")
-        .select("email,display_name,password_hash,role,plan_name,account_status,trial_ends_at")
-        .eq("email", email)
-        .limit(1)
-        .execute()
-    )
+    try:
+        rows = _result_data(
+            client.table("app_users")
+            .select("email,display_name,password_hash,role,plan_name,account_status,trial_ends_at")
+            .eq("email", email)
+            .limit(1)
+            .execute()
+        )
+    except Exception:
+        rows = _result_data(
+            client.table("app_users")
+            .select("email,display_name,password_hash,role")
+            .eq("email", email)
+            .limit(1)
+            .execute()
+        )
     if not rows:
         return None
     row = rows[0]
@@ -140,7 +177,7 @@ def authenticate_cloud_user(email: str, password: str) -> dict[str, Any] | None:
         "email": row.get("email", ""),
         "display_name": row.get("display_name", ""),
         "role": row.get("role", ""),
-        "plan_name": row.get("plan_name", "free"),
+        "plan_name": row.get("plan_name", "free" if row.get("role") == "teacher" else "student"),
         "account_status": row.get("account_status", "active"),
         "trial_ends_at": row.get("trial_ends_at", ""),
     }
@@ -655,10 +692,13 @@ def record_cloud_usage_event(owner_email: str, event_type: str, quantity: int = 
 def list_cloud_usage_events(limit: int = 200, owner_email: str | None = None) -> list[dict[str, Any]]:
     """List recent usage events from Supabase."""
     client = get_client()
-    query = client.table("teacher_usage_events").select("*").order("created_at", desc=True).limit(limit)
-    if owner_email:
-        query = query.eq("owner_email", owner_email)
-    rows = _result_data(query.execute())
+    try:
+        query = client.table("teacher_usage_events").select("*").order("created_at", desc=True).limit(limit)
+        if owner_email:
+            query = query.eq("owner_email", owner_email)
+        rows = _result_data(query.execute())
+    except Exception:
+        return []
     items = []
     for row in rows:
         item = dict(row)
@@ -670,30 +710,32 @@ def list_cloud_usage_events(limit: int = 200, owner_email: str | None = None) ->
 def get_cloud_plan_status(owner_email: str) -> dict[str, Any]:
     """Return plan and usage state from Supabase."""
     client = get_client()
-    user = _first_row(
-        client.table("app_users")
-        .select("plan_name,trial_ends_at,account_status")
-        .eq("email", owner_email)
-        .limit(1)
-        .execute()
-    ) or {}
-    plan_name = str(user.get("plan_name", "free") or "free")
-    limits = {
-        "free": {"monthly_generations": 30, "students": 50, "active_tests": 10},
-        "trial": {"monthly_generations": 80, "students": 150, "active_tests": 25},
-        "teacher_pro": {"monthly_generations": 500, "students": 1000, "active_tests": 200},
-        "school": {"monthly_generations": 5000, "students": 10000, "active_tests": 5000},
-        "student": {"monthly_generations": 0, "students": 0, "active_tests": 0},
-    }.get(plan_name, {"monthly_generations": 30, "students": 50, "active_tests": 10})
+    try:
+        user = _first_row(
+            client.table("app_users")
+            .select("plan_name,trial_ends_at,account_status,role")
+            .eq("email", owner_email)
+            .limit(1)
+            .execute()
+        ) or {}
+    except Exception:
+        # Cloud schema is older than the app code; degrade gracefully.
+        user = _first_row(
+            client.table("app_users")
+            .select("role")
+            .eq("email", owner_email)
+            .limit(1)
+            .execute()
+        ) or {}
+
+    plan_name = str(user.get("plan_name", "free" if user.get("role") == "teacher" else "student") or "free")
+    plan = _default_plan_status(plan_name)
     usage_events = list_cloud_usage_events(limit=5000, owner_email=owner_email)
     monthly_generations = sum(item["quantity"] for item in usage_events if item["event_type"] == "generation")
-    return {
-        "plan_name": plan_name,
-        "trial_ends_at": user.get("trial_ends_at", ""),
-        "account_status": user.get("account_status", "active"),
-        "limits": limits,
-        "usage": {"monthly_generations": monthly_generations},
-    }
+    plan["trial_ends_at"] = user.get("trial_ends_at", "")
+    plan["account_status"] = user.get("account_status", "active")
+    plan["usage"]["monthly_generations"] = monthly_generations
+    return plan
 
 
 def sync_local_data_to_cloud(db_path: Path | str, owner_email: str) -> dict[str, int]:
