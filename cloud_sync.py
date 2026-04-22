@@ -639,30 +639,32 @@ def log_cloud_audit_event(
 ) -> int:
     """Store one audit log row in Supabase."""
     client = get_client()
-    rows = _result_data(
-        client.table("teacher_audit_logs")
-        .insert(
-            {
-                "actor_email": actor_email,
-                "actor_role": actor_role,
-                "event_type": event_type,
-                "target_type": target_type,
-                "target_id": target_id,
-                "details_json": details or {},
-            }
-        )
-        .execute()
-    )
-    return int(rows[0]["id"]) if rows and rows[0].get("id") is not None else 0
+    payload = {
+        "actor_email": actor_email,
+        "actor_role": actor_role,
+        "event_type": event_type,
+        "target_type": target_type,
+        "target_id": target_id,
+        "details_json": details or {},
+    }
+    try:
+        rows = _result_data(client.table("teacher_audit_logs").insert(payload).execute())
+        return int(rows[0]["id"]) if rows and rows[0].get("id") is not None else 0
+    except Exception:
+        # Older Supabase schemas may not yet include audit tables/columns.
+        return 0
 
 
 def list_cloud_audit_logs(limit: int = 100, actor_email: str | None = None) -> list[dict[str, Any]]:
     """List recent audit log rows from Supabase."""
     client = get_client()
-    query = client.table("teacher_audit_logs").select("*").order("created_at", desc=True).limit(limit)
-    if actor_email:
-        query = query.eq("actor_email", actor_email)
-    rows = _result_data(query.execute())
+    try:
+        query = client.table("teacher_audit_logs").select("*").order("created_at", desc=True).limit(limit)
+        if actor_email:
+            query = query.eq("actor_email", actor_email)
+        rows = _result_data(query.execute())
+    except Exception:
+        return []
     items = []
     for row in rows:
         item = dict(row)
