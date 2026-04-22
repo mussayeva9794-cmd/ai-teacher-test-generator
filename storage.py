@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import os
 import re
 import secrets
 import sqlite3
@@ -24,7 +25,7 @@ from cloud_sync import (
     delete_cloud_student_draft,
     find_cloud_autosave_record,
     get_cloud_plan_status,
-    is_cloud_enabled,
+    is_cloud_enabled as is_supabase_configured,
     list_cloud_audit_logs,
     list_cloud_api_error_logs,
     list_cloud_attempt_results,
@@ -60,6 +61,15 @@ from cloud_sync import (
 
 DB_PATH = Path(__file__).resolve().parent / "teacher_history.db"
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+def is_cloud_enabled() -> bool:
+    """Return whether storage should use Supabase as the primary backend.
+
+    The default is local-first because it is faster and more stable for live demos.
+    Set APP_STORAGE_MODE=cloud to opt into Supabase-backed primary storage again.
+    """
+    return os.getenv("APP_STORAGE_MODE", "local").strip().lower() == "cloud" and is_supabase_configured()
 
 
 def is_valid_email(value: str) -> bool:
@@ -358,7 +368,11 @@ def ensure_column(
     rows = connection.execute(f"PRAGMA table_info({table_name})").fetchall()
     column_names = {row[1] for row in rows}
     if column_name not in column_names:
-        connection.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_definition}")
+        try:
+            connection.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_definition}")
+        except sqlite3.OperationalError:
+            fallback_definition = column_definition.replace("DEFAULT CURRENT_TIMESTAMP", "DEFAULT ''")
+            connection.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {fallback_definition}")
 
 
 def hash_password(password: str, salt: str | None = None) -> str:
@@ -423,16 +437,21 @@ def create_local_user(email: str, password: str, display_name: str, role: str) -
     except sqlite3.IntegrityError:
         return False, "A user with this email already exists."
 
+    if is_supabase_configured():
+        try:
+            create_cloud_user(email, password, display_name, role)
+        except Exception:
+            _write_local_api_error(
+                "supabase",
+                "create_cloud_user mirror failed",
+                {"email": email},
+            )
+
     return True, "Profile created successfully."
 
 
 def authenticate_local_user(email: str, password: str) -> dict[str, Any] | None:
     """Authenticate a local user."""
-    if is_cloud_enabled():
-        ok, result = _try_cloud_call("authenticate_cloud_user", authenticate_cloud_user, email, password)
-        if ok:
-            return result
-
     email = email.strip().lower()
     with get_connection() as connection:
         row = connection.execute(
@@ -444,7 +463,48 @@ def authenticate_local_user(email: str, password: str) -> dict[str, Any] | None:
             (email,),
         ).fetchone()
 
-    if row is None or not verify_password(password, row["password_hash"]):
+    if row is None:
+        if is_supabase_configured():
+            try:
+                cloud_user = authenticate_cloud_user(email, password)
+            except Exception as error:
+                _write_local_api_error(
+                    "supabase",
+                    "authenticate_cloud_user fallback failed",
+                    {"email": email, "error": str(error)},
+                )
+                cloud_user = None
+            if cloud_user is not None:
+                try:
+                    with get_connection() as connection:
+                        connection.execute(
+                            """
+                            INSERT INTO users (email, display_name, password_hash, role, plan_name, account_status, trial_ends_at)
+                            VALUES (?, ?, ?, ?, ?, ?, ?)
+                            ON CONFLICT(email) DO UPDATE SET
+                                display_name = excluded.display_name,
+                                password_hash = excluded.password_hash,
+                                role = excluded.role,
+                                plan_name = excluded.plan_name,
+                                account_status = excluded.account_status,
+                                trial_ends_at = excluded.trial_ends_at
+                            """,
+                            (
+                                cloud_user["email"],
+                                cloud_user["display_name"],
+                                hash_password(password),
+                                cloud_user["role"],
+                                cloud_user.get("plan_name", "free" if cloud_user.get("role") == "teacher" else "student"),
+                                cloud_user.get("account_status", "active"),
+                                cloud_user.get("trial_ends_at", ""),
+                            ),
+                        )
+                except Exception:
+                    pass
+                return cloud_user
+        return None
+
+    if not verify_password(password, row["password_hash"]):
         return None
 
     return {
@@ -1879,3 +1939,6 @@ def migrate_local_data_to_cloud(owner_email: str) -> dict[str, int]:
     if ok:
         return result
     return {"users": 0, "tests": 0, "attempts": 0, "groups": 0, "students": 0}
+
+
+initialize_database()

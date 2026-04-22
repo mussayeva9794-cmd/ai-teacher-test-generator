@@ -845,11 +845,16 @@ def render_cloud_status_sidebar() -> None:
     status = get_cloud_status()
     with st.sidebar.expander("Cloud Sync", expanded=False):
         if status["enabled"]:
-            st.success("Supabase cloud database is configured. The app now uses cloud-first storage.")
+            storage_mode = os.getenv("APP_STORAGE_MODE", "local").strip().lower()
+            if storage_mode == "cloud":
+                st.success("Supabase is configured and cloud-primary storage mode is active.")
+            else:
+                st.info("Supabase is configured, but the app is running in stable local-first mode for faster, safer demos.")
         else:
             st.info("Supabase is optional. Configure SUPABASE_URL and SUPABASE_KEY to enable cloud-first storage.")
         st.caption(f"SUPABASE_URL: {'Yes' if status['url_present'] else 'No'}")
         st.caption(f"SUPABASE_KEY: {'Yes' if status['key_present'] else 'No'}")
+        st.caption(f"Storage mode: {os.getenv('APP_STORAGE_MODE', 'local').strip().lower()}")
 
 
 def render_share_links_sidebar() -> None:
@@ -3489,10 +3494,10 @@ def render_analytics_dashboard() -> None:
     st.dataframe(attempt_df, use_container_width=True, hide_index=True)
 
 
-@st.fragment(run_every="5s")
+@st.fragment(run_every="2s")
 def render_live_analytics_panel() -> None:
     """Auto-refresh analytics so new student submissions appear quickly."""
-    st.caption("Live updates: this analytics view refreshes automatically every 5 seconds.")
+    st.caption("Live updates: this analytics view refreshes automatically every 2 seconds.")
     render_analytics_dashboard()
 
 
@@ -3663,10 +3668,10 @@ def render_student_answers_view() -> None:
             st.write(f"Score for this question: {item.get('score', 0)}")
 
 
-@st.fragment(run_every="5s")
+@st.fragment(run_every="2s")
 def render_live_answers_panel() -> None:
     """Auto-refresh student answers so teacher view updates shortly after submission."""
-    st.caption("Live updates: new student answers appear automatically every 5 seconds.")
+    st.caption("Live updates: new student answers appear automatically every 2 seconds.")
     render_student_answers_view()
 
 
