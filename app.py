@@ -2321,9 +2321,12 @@ def format_seconds(seconds_left: int) -> str:
     return f"{minutes:02d}:{seconds:02d}"
 
 
-def get_student_identity() -> dict[str, str]:
-    """Return the active authenticated student identity if present."""
-    user = get_current_user()
+def get_student_identity(share_token: str = "") -> dict[str, str]:
+    """Return the active authenticated student identity for one shared test flow."""
+    if share_token:
+        user = st.session_state.get(f"shared_student_user_{share_token}", {})
+    else:
+        user = {}
     if user.get("role") == "student" and not user.get("is_guest"):
         return {
             "student_name": user.get("display_name", "").strip(),
@@ -2334,11 +2337,11 @@ def get_student_identity() -> dict[str, str]:
 
 def render_student_sign_in_panel(share_token: str) -> bool:
     """Render a compact sign-in panel for protected student links."""
-    identity = get_student_identity()
+    identity = get_student_identity(share_token)
     if identity["student_key"]:
         st.success(f"Signed in as {identity['student_name']} ({identity['student_key']}).")
         if st.button("Sign out student", key=f"student_share_signout_{share_token}", use_container_width=True):
-            st.session_state.current_user = default_guest_user()
+            st.session_state.pop(f"shared_student_user_{share_token}", None)
             st.rerun()
         return True
 
@@ -2353,7 +2356,7 @@ def render_student_sign_in_panel(share_token: str) -> bool:
             st.error("This student account could not be verified. Use an existing student profile with the correct password.")
         else:
             user["is_guest"] = False
-            st.session_state.current_user = user
+            st.session_state[f"shared_student_user_{share_token}"] = user
             st.rerun()
     return False
 
@@ -2623,7 +2626,7 @@ def render_shared_student_page(share_token: str) -> None:
     if require_student_login and not render_student_sign_in_panel(share_token):
         return
 
-    identity = get_student_identity()
+    identity = get_student_identity(share_token)
     student_name_key = f"shared_student_name_{share_token}"
     if require_student_login:
         student_name = identity["student_name"]
@@ -3259,8 +3262,8 @@ def build_student_weak_topics(student_attempts: list[dict[str, Any]]) -> list[di
 def render_analytics_dashboard() -> None:
     """Render detailed analytics for the currently opened test."""
     st.subheader("Analytics Dashboard")
-    attempts = list_attempt_results(limit=200, owner_email=get_owner_email(), test_uid=get_current_test_uid())
-    all_attempts = list_attempt_results(limit=1000, owner_email=get_owner_email())
+    attempts = list_attempt_results(limit=5000, owner_email=get_owner_email(), test_uid=get_current_test_uid())
+    all_attempts = list_attempt_results(limit=5000, owner_email=get_owner_email())
     aggregate = aggregate_attempt_history(attempts)
     topic_progress = build_topic_progress_rows(attempts)
     suspicious_rows = detect_suspicious_attempts(attempts)
@@ -3576,7 +3579,7 @@ def render_attempt_admin_tools(selected_attempt: dict[str, Any]) -> None:
 def render_student_answers_view() -> None:
     """Render a detailed on-site view of saved student answers."""
     st.subheader("Student Answers")
-    attempts = list_attempt_results(limit=200, owner_email=get_owner_email(), test_uid=get_current_test_uid())
+    attempts = list_attempt_results(limit=5000, owner_email=get_owner_email(), test_uid=get_current_test_uid())
     st.caption("This table is scoped to the current test only.")
     if not attempts:
         st.info("No student answers have been submitted yet for this test.")

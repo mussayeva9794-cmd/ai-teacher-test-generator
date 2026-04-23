@@ -368,11 +368,7 @@ def ensure_column(
     rows = connection.execute(f"PRAGMA table_info({table_name})").fetchall()
     column_names = {row[1] for row in rows}
     if column_name not in column_names:
-        try:
-            connection.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_definition}")
-        except sqlite3.OperationalError:
-            fallback_definition = column_definition.replace("DEFAULT CURRENT_TIMESTAMP", "DEFAULT ''")
-            connection.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {fallback_definition}")
+        connection.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_definition}")
 
 
 def hash_password(password: str, salt: str | None = None) -> str:
@@ -1939,6 +1935,3 @@ def migrate_local_data_to_cloud(owner_email: str) -> dict[str, int]:
     if ok:
         return result
     return {"users": 0, "tests": 0, "attempts": 0, "groups": 0, "students": 0}
-
-
-initialize_database()
