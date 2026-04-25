@@ -368,7 +368,13 @@ def ensure_column(
     rows = connection.execute(f"PRAGMA table_info({table_name})").fetchall()
     column_names = {row[1] for row in rows}
     if column_name not in column_names:
-        connection.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_definition}")
+        try:
+            connection.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_definition}")
+        except sqlite3.OperationalError as error:
+            if "non-constant default" not in str(error).lower():
+                raise
+            safe_definition = column_definition.replace("DEFAULT CURRENT_TIMESTAMP", "DEFAULT ''")
+            connection.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {safe_definition}")
 
 
 def hash_password(password: str, salt: str | None = None) -> str:
@@ -1910,12 +1916,12 @@ def get_plan_status(owner_email: str) -> dict[str, Any]:
         account_status = "active"
 
     limits = {
-        "free": {"monthly_generations": 30, "students": 50, "active_tests": 10},
-        "trial": {"monthly_generations": 80, "students": 150, "active_tests": 25},
+        "free": {"monthly_generations": 100, "students": 50, "active_tests": 100},
+        "trial": {"monthly_generations": 200, "students": 150, "active_tests": 250},
         "teacher_pro": {"monthly_generations": 500, "students": 1000, "active_tests": 200},
         "school": {"monthly_generations": 5000, "students": 10000, "active_tests": 5000},
         "student": {"monthly_generations": 0, "students": 0, "active_tests": 0},
-    }.get(plan_name, {"monthly_generations": 30, "students": 50, "active_tests": 10})
+    }.get(plan_name, {"monthly_generations": 100, "students": 50, "active_tests": 100})
     usage_events = list_usage_events(limit=5000, owner_email=owner_email)
     monthly_generations = sum(item["quantity"] for item in usage_events if item["event_type"] == "generation")
     return {

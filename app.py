@@ -169,6 +169,8 @@ def initialize_state() -> None:
         "last_attempt": None,
         "question_bank_notice": "",
         "share_notice": "",
+        "generation_notice": "",
+        "generation_notice_type": "",
         "public_app_url": os.getenv("PUBLIC_APP_URL", "http://localhost:8501"),
         "last_autosave_signature": "",
         "last_created_share_url": "",
@@ -1293,9 +1295,12 @@ def handle_generation(form_data: dict[str, Any]) -> None:
     st.session_state.history_notice = f"Saved to local history as record #{record_id}."
     st.session_state.last_autosave_signature = build_payload_signature(generated_test, metadata)
     if fallback_used:
-        st.warning("The cloud AI service was unavailable, so a local fallback generator created the test pack. Review the questions carefully before sharing.")
+        st.session_state.generation_notice_type = "warning"
+        st.session_state.generation_notice = "The cloud AI service was unavailable, so a local fallback generator created the test pack. Review the questions carefully before sharing."
     else:
-        st.success("Four variants were generated successfully. You can now review Variant D, export all variants, and track analytics per test.")
+        st.session_state.generation_notice_type = "success"
+        st.session_state.generation_notice = "Four variants were generated successfully. You can now review Variant D, export all variants, and track analytics per test."
+    st.rerun()
 
 
 def build_file_base_name(topic: str, test_type: str, language: str, export_mode: str, variant_name: str) -> str:
@@ -4101,6 +4106,15 @@ def render_output() -> None:
         render_empty_workspace_state()
         return
 
+    if st.session_state.get("generation_notice"):
+        notice = st.session_state.generation_notice
+        if st.session_state.get("generation_notice_type") == "warning":
+            st.warning(notice)
+        else:
+            st.success(notice)
+        st.session_state.generation_notice = ""
+        st.session_state.generation_notice_type = ""
+
     metadata = st.session_state.test_metadata
     render_test_status_banner()
     action_col1, action_col2 = st.columns([5, 1], gap="large")
@@ -4223,13 +4237,13 @@ def main() -> None:
             render_test_library_view()
             render_empty_workspace_state()
     else:
-        shell_tabs = st.tabs(["Create", "Workspace"])
+        shell_tabs = st.tabs(["Workspace", "Create"])
         with shell_tabs[0]:
+            render_output()
+        with shell_tabs[1]:
             form_data, generate_clicked = render_generator_form()
             if generate_clicked:
                 handle_generation(form_data)
-        with shell_tabs[1]:
-            render_output()
 
 
 if __name__ == "__main__":
