@@ -1,5 +1,6 @@
 import type { Question, QuestionType, TestVariant } from "./types";
 import { isValidVariant } from "./assessment";
+import { networkErrorCode } from "./network-error";
 
 export type GenerateInput = {
   topic: string;
@@ -51,6 +52,7 @@ Do not repeat questions, do not include unsupported facts, keep the answer unamb
     if (error instanceof Error && error.name === "TimeoutError") {
       throw new GroqGenerationError("timeout", "Groq request timed out.");
     }
+    console.error("Groq network request failed", { code: networkErrorCode(error) });
     throw new GroqGenerationError("upstream", "Groq could not be reached.");
   }
   if (!response.ok) {
