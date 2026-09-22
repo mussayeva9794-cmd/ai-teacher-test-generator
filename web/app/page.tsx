@@ -1,0 +1,9 @@
+import Link from "next/link";
+
+export default function Home() {
+  return <div className="wrap">
+    <header className="topbar"><Link className="brand" href="/"><span className="brand-mark">A</span> AI Teacher</Link><nav className="navlinks"><Link className="btn ghost" href="/login">Войти</Link><Link className="btn primary" href="/login?mode=signup">Начать</Link></nav></header>
+    <main className="hero"><section><div className="eyebrow">Создано для преподавателей</div><h1>Больше времени учить. Меньше времени проверять.</h1><p>Создавайте четыре варианта теста, отправляйте ученикам и получайте результаты сразу после сдачи. Всё в одном спокойном рабочем пространстве.</p><div className="hero-actions"><Link className="btn primary" href="/login?mode=signup">Создать тест →</Link><Link className="btn" href="/login">У меня есть аккаунт</Link></div></section><div className="hero-art" aria-hidden="true"><div className="art-sheet"><span className="art-check">✓</span><div className="art-line short"/><div className="art-line"/><div className="art-line"/><div className="art-line short"/></div><div className="art-sheet"><div className="art-line"/><div className="art-line short"/><div className="art-line"/></div></div></main>
+    <section className="grid cols-3"><div className="panel"><div className="eyebrow">01 / Создать</div><h3>Тесты за минуты</h3><p className="muted">Тема, класс, язык и четыре варианта с разной сложностью.</p></div><div className="panel"><div className="eyebrow">02 / Отправить</div><h3>Ссылка ученику</h3><p className="muted">Таймер, список допущенных и ограничение одной попытки.</p></div><div className="panel"><div className="eyebrow">03 / Анализировать</div><h3>Результаты сразу</h3><p className="muted">Оценки, ответы и средний результат в кабинете учителя.</p></div></section><footer className="footer">AI Teacher Test Generator</footer>
+  </div>;
+}
