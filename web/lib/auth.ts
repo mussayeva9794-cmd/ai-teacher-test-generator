@@ -1,5 +1,5 @@
 import type { NextRequest } from "next/server";
-import { adminClient } from "./supabase";
+import { serverAuthClient, userClient } from "./supabase";
 
 export type Actor = { id: string; email: string; role: "teacher" | "student"; name: string };
 
@@ -7,10 +7,9 @@ export async function actorFromRequest(request: NextRequest): Promise<Actor | nu
   const header = request.headers.get("authorization") || "";
   const token = header.startsWith("Bearer ") ? header.slice(7) : "";
   if (!token) return null;
-  const admin = adminClient();
-  const { data: userData, error: authError } = await admin.auth.getUser(token);
+  const { data: userData, error: authError } = await serverAuthClient().auth.getUser(token);
   if (authError || !userData.user) return null;
-  const { data: profile, error: profileError } = await admin
+  const { data: profile, error: profileError } = await userClient(token)
     .from("web_profiles")
     .select("role,display_name")
     .eq("id", userData.user.id)
