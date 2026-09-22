@@ -9,9 +9,20 @@ export async function GET() {
       const { error } = await adminClient().from("web_profiles").select("id").limit(1);
       supabaseAdminConnected = !error;
       if (error) {
-        supabaseAdminErrorCode = /^[a-zA-Z0-9_]{1,30}$/.test(error.code || "")
-          ? error.code
-          : "query_failed";
+        const message = error.message.toLowerCase();
+        if (/invalid api key|invalid jwt|jwt malformed/.test(message)) {
+          supabaseAdminErrorCode = "invalid_key";
+        } else if (/permission denied|unauthorized|forbidden/.test(message)) {
+          supabaseAdminErrorCode = "access_denied";
+        } else if (/could not find the table|does not exist/.test(message)) {
+          supabaseAdminErrorCode = "missing_table";
+        } else if (/fetch failed|failed to fetch|network/.test(message)) {
+          supabaseAdminErrorCode = "network_error";
+        } else {
+          supabaseAdminErrorCode = /^[a-zA-Z0-9_]{1,30}$/.test(error.code || "")
+            ? error.code
+            : "query_failed";
+        }
       }
     } catch {
       supabaseAdminErrorCode = "request_failed";
