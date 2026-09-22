@@ -6,6 +6,18 @@ export async function GET() {
   const groqKey = process.env.GROQ_API_KEY?.trim();
   const groqModel = process.env.GROQ_MODEL?.trim() || "openai/gpt-oss-20b";
   const supabaseConfigured = Boolean(supabaseUrl && process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY && supabaseSecret);
+  const supabaseUrlValid = (() => {
+    try {
+      const parsed = new URL(supabaseUrl || "");
+      return parsed.protocol === "https:" && parsed.hostname.endsWith(".supabase.co") && ["", "/"].includes(parsed.pathname);
+    } catch {
+      return false;
+    }
+  })();
+  const supabaseSecretFormatValid = Boolean(supabaseSecret && (
+    /^sb_secret_[a-zA-Z0-9_-]{20,}$/.test(supabaseSecret) || /^eyJ[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+$/.test(supabaseSecret)
+  ));
+  const groqKeyFormatValid = Boolean(groqKey && /^gsk_[a-zA-Z0-9_-]{20,}$/.test(groqKey));
   let supabaseAdminConnected = false;
   let supabaseAdminErrorCode: string | null = null;
   let supabaseNetworkErrorCode: string | null = null;
@@ -50,11 +62,14 @@ export async function GET() {
   return Response.json({
     status: "ok",
     supabase_configured: supabaseConfigured,
+    supabase_url_valid: supabaseUrlValid,
+    supabase_secret_format_valid: supabaseSecretFormatValid,
     supabase_admin_connected: supabaseAdminConnected,
     supabase_admin_status: supabaseAdminStatus,
     supabase_admin_error_code: supabaseAdminErrorCode,
     supabase_network_error_code: supabaseNetworkErrorCode,
     groq_configured: Boolean(groqKey),
+    groq_key_format_valid: groqKeyFormatValid,
     groq_connected: groqConnected,
     groq_status: groqStatus,
     groq_network_error_code: groqNetworkErrorCode,
