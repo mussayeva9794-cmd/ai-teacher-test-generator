@@ -22,7 +22,7 @@ export class GroqGenerationError extends Error {
 }
 
 async function generateVariant(input: GenerateInput, difficulty: string): Promise<TestVariant> {
-  const apiKey = process.env.GROQ_API_KEY;
+  const apiKey = process.env.GROQ_API_KEY?.trim();
   if (!apiKey) throw new GroqGenerationError("configuration", "GROQ_API_KEY is not configured.");
   const prompt = `Create ${input.count} UNIQUE ${input.type} school questions on "${input.topic}".
 Language: ${input.language}. Grade: ${input.gradeLevel || "school"}. Difficulty: ${difficulty}.
@@ -39,7 +39,7 @@ Do not repeat questions, do not include unsupported facts, keep the answer unamb
       method: "POST",
       headers: { authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
       body: JSON.stringify({
-        model: process.env.GROQ_MODEL || "openai/gpt-oss-20b",
+        model: process.env.GROQ_MODEL?.trim() || "openai/gpt-oss-20b",
         temperature: 0.55,
         response_format: { type: "json_object" },
         messages: [{ role: "system", content: "You are a careful school assessment author. Output valid JSON only." }, { role: "user", content: prompt }],
