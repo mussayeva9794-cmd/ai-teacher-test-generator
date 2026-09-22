@@ -1,7 +1,7 @@
 import type { NextRequest } from "next/server";
 import { actorFromRequest, jsonError } from "@/lib/auth";
 import { isValidVariant } from "@/lib/assessment";
-import { adminClient } from "@/lib/supabase";
+import { userClient } from "@/lib/supabase";
 
 type Context = { params: Promise<{ id: string }> };
 
@@ -9,7 +9,7 @@ export async function GET(request: NextRequest, { params }: Context) {
   const actor = await actorFromRequest(request);
   if (!actor || actor.role !== "teacher") return jsonError("Teacher sign-in required.", 401);
   const { id } = await params;
-  const { data, error } = await adminClient().from("web_tests")
+  const { data, error } = await userClient(actor.accessToken).from("web_tests")
     .select("*").eq("id", id).eq("owner_id", actor.id).maybeSingle();
   if (error || !data) return jsonError("Test not found.", 404);
   return Response.json({ test: data });
@@ -34,7 +34,7 @@ export async function PATCH(request: NextRequest, { params }: Context) {
     patch.status = body.status;
   }
   if (body.title !== undefined) patch.title = String(body.title).trim().slice(0, 180);
-  const { data, error } = await adminClient().from("web_tests").update(patch)
+  const { data, error } = await userClient(actor.accessToken).from("web_tests").update(patch)
     .eq("id", id).eq("owner_id", actor.id).select("id,status").maybeSingle();
   if (error || !data) return jsonError("Test could not be updated.", 503);
   return Response.json({ test: data });

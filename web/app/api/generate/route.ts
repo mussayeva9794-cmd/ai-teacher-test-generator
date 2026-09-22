@@ -1,7 +1,7 @@
 import type { NextRequest } from "next/server";
 import { actorFromRequest, jsonError } from "@/lib/auth";
-import { generateVariants, type GenerateInput } from "@/lib/groq";
-import { adminClient } from "@/lib/supabase";
+import { generateVariants, GroqGenerationError, type GenerateInput } from "@/lib/groq";
+import { userClient } from "@/lib/supabase";
 
 export const maxDuration = 300;
 
@@ -21,22 +21,36 @@ export async function POST(request: NextRequest) {
   if (!body.language || !["russian", "kazakh", "english"].includes(body.language)) {
     return jsonError("Choose a language.");
   }
+  let variants;
   try {
-    const variants = await generateVariants({
+    variants = await generateVariants({
       topic, count, type: body.type, language: body.language,
       gradeLevel: String(body.gradeLevel || "").slice(0, 80),
       objective: String(body.objective || "").slice(0, 1000),
       sourceText: String(body.sourceText || "").slice(0, 12000),
     });
-    const { data, error } = await adminClient().from("web_tests").insert({
-      owner_id: actor.id, title: variants["Variant B"].title, topic,
-      language: body.language, grade_level: String(body.gradeLevel || "").slice(0, 80),
-      variants, status: "draft",
-    }).select("id").single();
-    if (error || !data) throw error || new Error("Test save failed.");
-    return Response.json({ id: data.id });
   } catch (error) {
-    console.error("Generation failed", error);
-    return jsonError("Generation could not finish. Check Groq configuration and retry.", 503);
+    const reason = error instanceof GroqGenerationError ? error.reason : "upstream";
+    console.error("Generation failed", { reason });
+    const messages = {
+      configuration: "Groq is not configured on the server.",
+      authentication: "Groq rejected the API key. Replace GROQ_API_KEY in Vercel and redeploy.",
+      rate_limit: "Groq request limit was reached. Wait one minute and retry.",
+      timeout: "Groq took too long to answer. Retry the generation.",
+      upstream: "Groq is temporarily unavailable. Retry shortly.",
+      invalid_response: "AI returned an incomplete test. Retry or add more source material.",
+    } as const;
+    return jsonError(messages[reason], reason === "rate_limit" ? 429 : 503);
   }
+
+  const { data, error } = await userClient(actor.accessToken).from("web_tests").insert({
+    owner_id: actor.id, title: variants["Variant B"].title, topic,
+    language: body.language, grade_level: String(body.gradeLevel || "").slice(0, 80),
+    variants, status: "draft",
+  }).select("id").single();
+  if (error || !data) {
+    console.error("Generated test save failed", { code: error?.code || "unknown" });
+    return jsonError("The test was generated but could not be saved. Check Supabase access policies.", 503);
+  }
+  return Response.json({ id: data.id });
 }

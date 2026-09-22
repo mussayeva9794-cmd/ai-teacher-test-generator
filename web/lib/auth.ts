@@ -1,7 +1,13 @@
 import type { NextRequest } from "next/server";
 import { serverAuthClient, userClient } from "./supabase";
 
-export type Actor = { id: string; email: string; role: "teacher" | "student"; name: string };
+export type Actor = {
+  id: string;
+  email: string;
+  role: "teacher" | "student";
+  name: string;
+  accessToken: string;
+};
 
 export async function actorFromRequest(request: NextRequest): Promise<Actor | null> {
   const header = request.headers.get("authorization") || "";
@@ -20,6 +26,7 @@ export async function actorFromRequest(request: NextRequest): Promise<Actor | nu
     email: (userData.user.email || "").toLowerCase(),
     role: profile.role,
     name: profile.display_name,
+    accessToken: token,
   };
 }
 
