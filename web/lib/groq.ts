@@ -23,7 +23,7 @@ export class GroqGenerationError extends Error {
 }
 
 async function generateVariant(input: GenerateInput, difficulty: string): Promise<TestVariant> {
-  const apiKey = process.env.GROQ_API_KEY?.trim();
+  const apiKey = process.env.GROQ_API_KEY?.replace(/\s+/g, "");
   if (!apiKey) throw new GroqGenerationError("configuration", "GROQ_API_KEY is not configured.");
   const prompt = `Create ${input.count} UNIQUE ${input.type} school questions on "${input.topic}".
 Language: ${input.language}. Grade: ${input.gradeLevel || "school"}. Difficulty: ${difficulty}.

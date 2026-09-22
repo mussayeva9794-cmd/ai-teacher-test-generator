@@ -2,8 +2,8 @@ import { networkErrorCode } from "@/lib/network-error";
 
 export async function GET() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
-  const supabaseSecret = process.env.SUPABASE_SECRET_KEY?.trim();
-  const groqKey = process.env.GROQ_API_KEY?.trim();
+  const supabaseSecret = process.env.SUPABASE_SECRET_KEY?.replace(/\s+/g, "");
+  const groqKey = process.env.GROQ_API_KEY?.replace(/\s+/g, "");
   const groqModel = process.env.GROQ_MODEL?.trim() || "openai/gpt-oss-20b";
   const supabaseConfigured = Boolean(supabaseUrl && process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY && supabaseSecret);
   const supabaseUrlValid = (() => {
