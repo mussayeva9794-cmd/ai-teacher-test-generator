@@ -43,17 +43,22 @@ export async function GET() {
   }
 
   let groqConnected = false;
+  let groqModelAvailable = false;
   let groqStatus: number | null = null;
   let groqNetworkErrorCode: string | null = null;
   if (groqKey) {
     try {
-      const response = await fetch(`https://api.groq.com/openai/v1/models/${encodeURIComponent(groqModel)}`, {
+      const response = await fetch("https://api.groq.com/openai/v1/models", {
         headers: { authorization: `Bearer ${groqKey}` },
         signal: AbortSignal.timeout(8000),
         cache: "no-store",
       });
       groqStatus = response.status;
       groqConnected = response.ok;
+      if (response.ok) {
+        const payload = await response.json() as { data?: Array<{ id?: string }> };
+        groqModelAvailable = Boolean(payload.data?.some((model) => model.id === groqModel));
+      }
     } catch (error) {
       groqStatus = null;
       groqNetworkErrorCode = networkErrorCode(error);
@@ -71,6 +76,7 @@ export async function GET() {
     groq_configured: Boolean(groqKey),
     groq_key_format_valid: groqKeyFormatValid,
     groq_connected: groqConnected,
+    groq_model_available: groqModelAvailable,
     groq_status: groqStatus,
     groq_network_error_code: groqNetworkErrorCode,
   }, { headers: { "Cache-Control": "no-store" } });
