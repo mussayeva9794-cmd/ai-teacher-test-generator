@@ -37,18 +37,15 @@ function responseSchema(input: GenerateInput) {
   const questionProperties: Record<string, unknown> = {
     id: { type: "string" },
     type: { type: "string", enum: [input.type] },
-    question: { type: "string", minLength: 1 },
+    question: { type: "string" },
     correct_answer: { type: "string" },
     explanation: { type: "string" },
     skill_tag: { type: "string" },
   };
   if (input.type === "multiple_choice" || input.type === "true_false") {
-    const optionCount = input.type === "multiple_choice" ? 4 : 2;
     questionProperties.options = {
       type: "array",
-      items: { type: "string", minLength: 1 },
-      minItems: optionCount,
-      maxItems: optionCount,
+      items: { type: "string" },
     };
   }
   if (input.type === "matching") {
@@ -57,22 +54,20 @@ function responseSchema(input: GenerateInput) {
       items: {
         type: "object",
         properties: {
-          left: { type: "string", minLength: 1 },
-          right: { type: "string", minLength: 1 },
+          left: { type: "string" },
+          right: { type: "string" },
         },
         required: ["left", "right"],
         additionalProperties: false,
       },
-      minItems: 2,
-      maxItems: 8,
     };
   }
 
   return {
     type: "object",
     properties: {
-      title: { type: "string", minLength: 1 },
-      instructions: { type: "string", minLength: 1 },
+      title: { type: "string" },
+      instructions: { type: "string" },
       questions: {
         type: "array",
         items: {
@@ -81,8 +76,6 @@ function responseSchema(input: GenerateInput) {
           required: Object.keys(questionProperties),
           additionalProperties: false,
         },
-        minItems: input.count,
-        maxItems: input.count,
       },
     },
     required: ["title", "instructions", "questions"],
@@ -142,9 +135,9 @@ async function requestVariant(input: GenerateInput, difficulty: string): Promise
 Language: ${input.language}. Grade: ${input.gradeLevel || "school"}. Difficulty: ${difficulty}.
 Learning objective: ${input.objective || "understand and apply the topic"}.
 ${input.sourceText ? `Use this source as primary context: ${input.sourceText.slice(0, 12000)}` : ""}
-Return only a JSON object with title, instructions, questions. Every question must contain id, type,
+Return only a JSON object with title, instructions, questions. The questions array MUST contain exactly ${input.count} items. Every question must contain id, type,
 question, correct_answer, explanation, skill_tag. Multiple choice: 4 distinct options including
-correct_answer. True/false: 2 localized options including correct_answer. Matching: pairs array
+correct_answer. True/false: use exactly ${TRUE_FALSE_OPTIONS[input.language].join(" and ")} and make correct_answer one of them. Matching: pairs array
 of objects with left and right plus correct_answer as an empty string. Short answer: concise model answer.
 Do not repeat questions, do not include unsupported facts, keep the answer unambiguous.`;
   let response: Response;
