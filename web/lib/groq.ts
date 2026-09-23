@@ -22,7 +22,120 @@ export class GroqGenerationError extends Error {
   }
 }
 
-async function generateVariant(input: GenerateInput, difficulty: string): Promise<TestVariant> {
+const TRUE_FALSE_OPTIONS = {
+  russian: ["Верно", "Неверно"],
+  kazakh: ["Дұрыс", "Бұрыс"],
+  english: ["True", "False"],
+} as const;
+
+function generationAttempts(): number {
+  const configured = Number(process.env.MAX_GENERATION_ATTEMPTS || 2);
+  return Number.isInteger(configured) ? Math.max(1, Math.min(4, configured)) : 2;
+}
+
+function responseSchema(input: GenerateInput) {
+  const questionProperties: Record<string, unknown> = {
+    id: { type: "string" },
+    type: { type: "string", enum: [input.type] },
+    question: { type: "string", minLength: 1 },
+    correct_answer: { type: "string" },
+    explanation: { type: "string" },
+    skill_tag: { type: "string" },
+  };
+  if (input.type === "multiple_choice" || input.type === "true_false") {
+    const optionCount = input.type === "multiple_choice" ? 4 : 2;
+    questionProperties.options = {
+      type: "array",
+      items: { type: "string", minLength: 1 },
+      minItems: optionCount,
+      maxItems: optionCount,
+    };
+  }
+  if (input.type === "matching") {
+    questionProperties.pairs = {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          left: { type: "string", minLength: 1 },
+          right: { type: "string", minLength: 1 },
+        },
+        required: ["left", "right"],
+        additionalProperties: false,
+      },
+      minItems: 2,
+      maxItems: 8,
+    };
+  }
+
+  return {
+    type: "object",
+    properties: {
+      title: { type: "string", minLength: 1 },
+      instructions: { type: "string", minLength: 1 },
+      questions: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: questionProperties,
+          required: Object.keys(questionProperties),
+          additionalProperties: false,
+        },
+        minItems: input.count,
+        maxItems: input.count,
+      },
+    },
+    required: ["title", "instructions", "questions"],
+    additionalProperties: false,
+  };
+}
+
+function canonicalTrueFalse(value: unknown, language: GenerateInput["language"]): string {
+  const normalized = String(value || "").trim().toLocaleLowerCase();
+  const truthy = new Set(["true", "верно", "правда", "дұрыс", "иә", "yes"]);
+  const falsy = new Set(["false", "неверно", "ложь", "бұрыс", "жоқ", "no"]);
+  const [trueLabel, falseLabel] = TRUE_FALSE_OPTIONS[language];
+  if (truthy.has(normalized)) return trueLabel;
+  if (falsy.has(normalized)) return falseLabel;
+  return "";
+}
+
+function toQuestion(
+  value: unknown,
+  input: GenerateInput,
+  difficulty: string,
+  index: number,
+): Question {
+  const source = value && typeof value === "object" ? value as Record<string, unknown> : {};
+  const rawOptions = Array.isArray(source.options)
+    ? source.options.map((option) => String(option).trim()).filter(Boolean)
+    : [];
+  const options = input.type === "true_false"
+    ? [...TRUE_FALSE_OPTIONS[input.language]]
+    : [...new Set(rawOptions)];
+  const rawAnswer = String(source.correct_answer || "").trim();
+  const correctAnswer = input.type === "true_false"
+    ? canonicalTrueFalse(rawAnswer, input.language)
+    : rawAnswer;
+
+  return {
+    id: `${difficulty}-${index + 1}`,
+    type: input.type,
+    question: String(source.question || "").trim(),
+    options: input.type === "multiple_choice" || input.type === "true_false" ? options : undefined,
+    pairs: Array.isArray(source.pairs)
+      ? source.pairs.map((pair) => {
+          const item = pair && typeof pair === "object" ? pair as Record<string, unknown> : {};
+          return { left: String(item.left || "").trim(), right: String(item.right || "").trim() };
+        }).filter((pair) => pair.left && pair.right)
+      : undefined,
+    correct_answer: input.type === "matching" ? "" : correctAnswer,
+    explanation: String(source.explanation || "").trim(),
+    skill_tag: String(source.skill_tag || input.topic).trim(),
+  };
+}
+
+async function requestVariant(input: GenerateInput, difficulty: string): Promise<TestVariant> {
   const apiKey = process.env.GROQ_API_KEY?.replace(/\s+/g, "");
   if (!apiKey) throw new GroqGenerationError("configuration", "GROQ_API_KEY is not configured.");
   const prompt = `Create ${input.count} UNIQUE ${input.type} school questions on "${input.topic}".
@@ -41,8 +154,14 @@ Do not repeat questions, do not include unsupported facts, keep the answer unamb
       headers: { authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
       body: JSON.stringify({
         model: process.env.GROQ_MODEL?.trim() || "openai/gpt-oss-20b",
-        temperature: 0.55,
-        response_format: { type: "json_object" },
+        temperature: 0.35,
+        max_completion_tokens: 8192,
+        reasoning_effort: "low",
+        reasoning_format: "hidden",
+        response_format: {
+          type: "json_schema",
+          json_schema: { name: "test_variant", strict: true, schema: responseSchema(input) },
+        },
         messages: [{ role: "system", content: "You are a careful school assessment author. Output valid JSON only." }, { role: "user", content: prompt }],
       }),
       signal: AbortSignal.timeout(45000),
@@ -74,16 +193,9 @@ Do not repeat questions, do not include unsupported facts, keep the answer unamb
   const variant: TestVariant = {
     title: String(raw.title || `${input.topic} test`).slice(0, 180),
     instructions: String(raw.instructions || "Answer each question.").slice(0, 500),
-    questions: Array.isArray(raw.questions) ? raw.questions.slice(0, input.count).map((q: Record<string, unknown>, index: number): Question => ({
-      id: `${difficulty}-${index + 1}`,
-      type: input.type,
-      question: String(q.question || "").trim(),
-      options: Array.isArray(q.options) ? q.options.map(String) : undefined,
-      pairs: Array.isArray(q.pairs) ? q.pairs.map((p: Record<string, unknown>) => ({ left: String(p.left || ""), right: String(p.right || "") })) : undefined,
-      correct_answer: String(q.correct_answer || "").trim(),
-      explanation: String(q.explanation || "").trim(),
-      skill_tag: String(q.skill_tag || input.topic).trim(),
-    })) : [],
+    questions: Array.isArray(raw.questions)
+      ? raw.questions.slice(0, input.count).map((question, index) => toQuestion(question, input, difficulty, index))
+      : [],
   };
   if (!isValidVariant(variant) || variant.questions.length !== input.count || variant.questions.some((q) => !q.question)) {
     throw new GroqGenerationError("invalid_response", "AI returned an incomplete test.");
@@ -91,10 +203,27 @@ Do not repeat questions, do not include unsupported facts, keep the answer unamb
   return variant;
 }
 
+async function generateVariant(input: GenerateInput, difficulty: string): Promise<TestVariant> {
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= generationAttempts(); attempt += 1) {
+    try {
+      return await requestVariant(input, difficulty);
+    } catch (error) {
+      lastError = error;
+      if (!(error instanceof GroqGenerationError) || error.reason !== "invalid_response") throw error;
+      console.warn("Groq returned an incomplete variant", { difficulty, attempt });
+    }
+  }
+  throw lastError instanceof GroqGenerationError
+    ? lastError
+    : new GroqGenerationError("invalid_response", "Groq returned an incomplete test.");
+}
+
 export async function generateVariants(input: GenerateInput): Promise<Record<string, TestVariant>> {
-  const [easy, medium, hard] = await Promise.all([
-    generateVariant(input, "easy"), generateVariant(input, "medium"), generateVariant(input, "hard"),
-  ]);
+  // Sequential requests avoid exhausting low-tier Groq request limits during retries.
+  const easy = await generateVariant(input, "easy");
+  const medium = await generateVariant(input, "medium");
+  const hard = await generateVariant(input, "hard");
   const sources = [easy, medium, hard];
   const mixed: TestVariant = {
     title: `${medium.title} — mixed`,
