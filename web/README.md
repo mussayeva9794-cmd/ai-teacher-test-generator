@@ -39,3 +39,5 @@ npm run dev
 ```
 
 The publishable key is visible in the browser by design. The secret key and Groq key must remain in Vercel server environment only. Never commit `.env.local` or output the keys in logs.
+
+Student links always use the public production domain, even when a teacher opens a protected Vercel preview. If the project later moves to a custom domain, set `PUBLIC_APP_URL` to its HTTPS origin in Vercel and redeploy. Students open `/s/<token>` directly, then sign in or register with the site's own account; they do not need a Vercel account.

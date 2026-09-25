@@ -1,6 +1,7 @@
 import type { NextRequest } from "next/server";
 import { actorFromRequest, jsonError } from "@/lib/auth";
 import { parseSettings } from "@/lib/assessment";
+import { publicTestUrl } from "@/lib/public-url";
 import { userClient } from "@/lib/supabase";
 
 type Context = { params: Promise<{ id: string }> };
@@ -25,7 +26,7 @@ export async function POST(request: NextRequest, { params }: Context) {
     test_id: id, owner_id: actor.id, variant_name: variantName, settings,
   }).select("token").single();
   if (error || !data) return jsonError("Could not create a share link.", 503);
-  return Response.json({ token: data.token, url: `${request.nextUrl.origin}/s/${data.token}` });
+  return Response.json({ token: data.token, url: publicTestUrl(request.nextUrl.origin, data.token) });
 }
 
 export async function GET(request: NextRequest, { params }: Context) {
@@ -36,5 +37,8 @@ export async function GET(request: NextRequest, { params }: Context) {
     .select("id,token,variant_name,settings,is_active,created_at")
     .eq("test_id", id).eq("owner_id", actor.id).order("created_at", { ascending: false });
   if (error) return jsonError("Could not load links.", 503);
-  return Response.json({ links: data || [] });
+  return Response.json({ links: (data || []).map((link) => ({
+    ...link,
+    url: publicTestUrl(request.nextUrl.origin, link.token),
+  })) });
 }
