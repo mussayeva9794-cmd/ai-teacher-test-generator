@@ -8,7 +8,7 @@ export function browserClient(): SupabaseClient {
   if (!url || !key) throw new Error("Supabase public configuration is missing.");
   if (client) return client;
   client = createClient(url, key, {
-    auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true },
+    auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true, experimental: { passkey: true } },
   });
   return client;
 }

@@ -5,6 +5,7 @@ import { Suspense, useState } from "react";
 import Link from "next/link";
 import { browserClient } from "@/lib/supabase";
 import { safeNext } from "@/lib/client";
+import { signInWithPasskey } from "@/lib/passkeys";
 
 function LoginForm() {
   const search = useSearchParams();
@@ -40,6 +41,16 @@ function LoginForm() {
     finally { setBusy(false); }
   }
 
+  async function passkeySignIn() {
+    setBusy(true); setError(""); setMessage("");
+    try {
+      await signInWithPasskey(browserClient().auth);
+      router.replace(next);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Не удалось войти с ключом доступа.");
+    } finally { setBusy(false); }
+  }
+
   return <div className="wrap"><header className="topbar"><Link className="brand" href="/"><span className="brand-mark">A</span> AI Teacher</Link></header>
     <main className="panel" style={{ maxWidth: 460, margin: "8vh auto" }}><div className="eyebrow">Личный кабинет</div><h2>{mode === "signup" ? "Создать аккаунт" : "С возвращением"}</h2><p className="muted">{mode === "signup" ? "Укажите роль и используйте свой адрес электронной почты." : "Войдите, чтобы продолжить работу."}</p>
       <div className="tabs" style={{ marginBottom: 22 }}><button className={mode === "signin" ? "active" : ""} onClick={() => setMode("signin")}>Вход</button><button className={mode === "signup" ? "active" : ""} onClick={() => setMode("signup")}>Регистрация</button></div>
@@ -50,6 +61,7 @@ function LoginForm() {
         {error && <div className="error" role="alert">{error}</div>}{message && <div className="success" role="status">{message}</div>}
         <button className="btn primary" disabled={busy}>{busy ? "Подождите..." : mode === "signup" ? "Создать аккаунт" : "Войти"}</button>
       </form>
+      {mode === "signin" && <div className="stack" style={{ marginTop: 18 }}><p className="muted small" style={{ textAlign: "center" }}>или</p><button type="button" className="btn" disabled={busy} onClick={passkeySignIn}>Войти с Face ID / Touch ID</button><p className="muted small">Также может потребоваться код разблокировки устройства. Пароль остаётся доступным.</p></div>}
     </main></div>;
 }
 

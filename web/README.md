@@ -8,6 +8,7 @@ This is a separate Next.js application for Vercel. The existing Streamlit app at
 - Teacher library, Groq-based generation of four test variants, question editing, publication and archiving.
 - Share links with whitelist, deadline, timer, deterministic question/option randomization, one question at a time and optional score reveal.
 - Student autosaved draft, one submitted attempt per student account and test (database unique constraint), server-side grading, teacher results journal and CSV export.
+- Optional passkey sign-in through Face ID, Touch ID, a device PIN, or a security key. Password sign-in remains available.
 
 ## Not yet migrated
 
@@ -25,6 +26,10 @@ Legacy Streamlit account passwords and existing test/attempt history are **not**
    - `GROQ_API_KEY`: Groq API key; server-side only.
    - `GROQ_MODEL`: optional; defaults to `openai/gpt-oss-20b`.
 5. Deploy a **preview** first. Open `/api/health` and confirm both `*_configured` flags are true. Then test teacher sign-up, generation, publication, student sign-up, one submission, teacher results and repeat-attempt denial. Promote to production only after that.
+
+## Passkey setup
+
+In Supabase Authentication > Passkeys, enable passkeys and use `ai-teacher-test-generator.vercel.app` as the Relying Party ID and `https://ai-teacher-test-generator.vercel.app` as the allowed origin. The public origin must remain stable: switching domains requires users to register new passkeys. Supabase currently labels this feature experimental. Users must first sign in with a confirmed email, then register a passkey at `/account`. The existing email/password flow is the recovery path. Preview deployments have different origins and cannot register or use this production passkey.
 
 ## Local development
 
