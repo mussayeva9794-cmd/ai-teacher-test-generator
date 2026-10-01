@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { deletePasskey, listPasskeys, registerPasskey, signInWithPasskey } from "../lib/passkeys.ts";
+import { deletePasskey, listPasskeys, passkeyDestination, registerPasskey, signInWithPasskey } from "../lib/passkeys.ts";
 
 test("registers a passkey on the current account", async () => {
   const credential = { id: "credential-1" };
@@ -23,6 +23,11 @@ test("passkey sign-in returns the authenticated session", async () => {
 test("passkey sign-in rejects a missing session", async () => {
   const auth = { signInWithPasskey: async () => ({ data: { session: null }, error: null }) };
   await assert.rejects(signInWithPasskey(auth), /session/i);
+});
+
+test("passkey sign-in sends students home and teachers to their dashboard", () => {
+  assert.equal(passkeyDestination("student"), "/");
+  assert.equal(passkeyDestination("teacher"), "/dashboard");
 });
 
 test("lists only passkeys belonging to the signed-in user", async () => {

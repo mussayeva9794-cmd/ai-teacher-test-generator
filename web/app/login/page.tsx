@@ -5,7 +5,7 @@ import { Suspense, useState } from "react";
 import Link from "next/link";
 import { browserClient } from "@/lib/supabase";
 import { safeNext } from "@/lib/client";
-import { signInWithPasskey } from "@/lib/passkeys";
+import { passkeyDestination, signInWithPasskey } from "@/lib/passkeys";
 
 function LoginForm() {
   const search = useSearchParams();
@@ -44,8 +44,8 @@ function LoginForm() {
   async function passkeySignIn() {
     setBusy(true); setError(""); setMessage("");
     try {
-      await signInWithPasskey(browserClient().auth);
-      router.replace(next);
+      const session = await signInWithPasskey(browserClient().auth);
+      router.replace(safeNext(search.get("next"), passkeyDestination(session.user.user_metadata?.role)));
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Не удалось войти с ключом доступа.");
     } finally { setBusy(false); }

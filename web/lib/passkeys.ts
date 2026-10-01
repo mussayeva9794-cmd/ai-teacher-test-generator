@@ -2,6 +2,10 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 type PasskeyAuth = Pick<SupabaseClient["auth"], "registerPasskey" | "signInWithPasskey">;
 
+export function passkeyDestination(role: unknown): string {
+  return role === "student" ? "/" : "/dashboard";
+}
+
 export async function registerPasskey(auth: Pick<PasskeyAuth, "registerPasskey">) {
   const { data, error } = await auth.registerPasskey();
   if (error) throw error;
