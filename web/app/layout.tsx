@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import "./glass.css";
 
 export const metadata: Metadata = {
   title: "AI Teacher | Оценивание без лишней работы",
