@@ -1,6 +1,7 @@
 import type { NextRequest } from "next/server";
 import { actorFromRequest, jsonError } from "@/lib/auth";
 import { generateVariants, GroqGenerationError, type GenerateInput } from "@/lib/groq";
+import { publicGenerationError } from "@/lib/groq-error";
 import { userClient } from "@/lib/supabase";
 
 export const maxDuration = 300;
@@ -31,16 +32,12 @@ export async function POST(request: NextRequest) {
     });
   } catch (error) {
     const reason = error instanceof GroqGenerationError ? error.reason : "upstream";
-    console.error("Generation failed", { reason });
-    const messages = {
-      configuration: "Groq is not configured on the server.",
-      authentication: "Groq rejected the API key. Replace GROQ_API_KEY in Vercel and redeploy.",
-      rate_limit: "Groq request limit was reached. Wait one minute and retry.",
-      timeout: "Groq took too long to answer. Retry the generation.",
-      upstream: "Groq is temporarily unavailable. Retry shortly.",
-      invalid_response: "AI returned an incomplete test. Retry or add more source material.",
-    } as const;
-    return jsonError(messages[reason], reason === "rate_limit" ? 429 : 503);
+    console.error("Generation failed", {
+      reason,
+      upstreamStatus: error instanceof GroqGenerationError ? error.upstreamStatus : undefined,
+    });
+    const publicError = publicGenerationError(reason);
+    return jsonError(publicError.message, publicError.status);
   }
 
   const { data, error } = await userClient(actor.accessToken).from("web_tests").insert({
