@@ -1,6 +1,8 @@
 import type { NextRequest } from "next/server";
 import { actorFromRequest, jsonError } from "@/lib/auth";
 import { userClient } from "@/lib/supabase";
+import { adminClient } from "@/lib/supabase-admin";
+import { spreadsheetSafeText } from "@/lib/csv-export";
 
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const actor = await actorFromRequest(request);
@@ -16,10 +18,18 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   if (error) return jsonError("Could not load results.", 503);
   const ids = [...new Set((attempts || []).map((row) => row.student_id))];
   const { data: profiles } = ids.length
-    ? await db.from("web_profiles").select("id,display_name").in("id", ids)
+    ? await adminClient().from("web_profiles").select("id,display_name").in("id", ids)
     : { data: [] as { id: string; display_name: string }[] };
   const names = new Map((profiles || []).map((profile) => [profile.id, profile.display_name]));
-  const rows = (attempts || []).map((row) => ({ ...row, student_name: names.get(row.student_id) || "Student" }));
+  const rows = (attempts || []).map((row) => {
+    const studentName = names.get(row.student_id) || "Student";
+    return {
+      ...row,
+      student_name: studentName,
+      // Keep the display name intact; exports use this spreadsheet-safe form.
+      csv_student_name: spreadsheetSafeText(studentName),
+    };
+  });
   const average = rows.length ? rows.reduce((sum, row) => sum + Number(row.percentage), 0) / rows.length : 0;
   return Response.json({ attempts: rows, summary: { count: rows.length, average: Math.round(average * 100) / 100 } });
 }

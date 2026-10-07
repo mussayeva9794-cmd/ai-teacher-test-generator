@@ -25,7 +25,13 @@ Legacy Streamlit account passwords and existing test/attempt history are **not**
    - `SUPABASE_SECRET_KEY`: Supabase secret/service-role key; server-side only, never prefix with `NEXT_PUBLIC_`.
    - `GROQ_API_KEY`: Groq API key; server-side only.
    - `GROQ_MODEL`: optional; defaults to `openai/gpt-oss-20b`.
-5. Deploy a **preview** first. Open `/api/health` and confirm both `*_configured` flags are true. Then test teacher sign-up, generation, publication, student sign-up, one submission, teacher results and repeat-attempt denial. Promote to production only after that.
+5. Deploy a **preview** first. Open `/api/health` and confirm both `*_configured` flags are true. Test student sign-up, administrator-approved teacher access, generation, publication, one submission, teacher results and repeat-attempt denial. Promote to production only after that.
+
+## School pilot hardening
+
+Run [`supabase_launch_hardening.sql`](./supabase_launch_hardening.sql) on an existing production database **before** deploying the code that uses it. New public registrations are students only. Existing teacher profiles are preserved; a database administrator must verify and promote new teachers. Generating tests is limited to five requests per teacher per hour in Postgres. If the migration is missing, generation fails closed rather than sending an unmetered Groq request.
+
+The complete release, class-email, backup, monitoring and multi-account acceptance procedure is in [`docs/school-launch.md`](./docs/school-launch.md). The local backup helper is [`scripts/backup-supabase.sh`](./scripts/backup-supabase.sh). Neither a successful build nor `/api/health` proves a real teacher/student test flow.
 
 ## Passkey setup
 
