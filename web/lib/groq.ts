@@ -16,6 +16,7 @@ export class GroqGenerationError extends Error {
   constructor(
     public readonly reason: "configuration" | "authentication" | "rate_limit" | "timeout" | "upstream" | "invalid_response",
     message: string,
+    public readonly upstreamStatus?: number,
   ) {
     super(message);
     this.name = "GroqGenerationError";
@@ -150,7 +151,7 @@ Do not repeat questions, do not include unsupported facts, keep the answer unamb
         temperature: 0.35,
         max_completion_tokens: 8192,
         reasoning_effort: "low",
-        reasoning_format: "hidden",
+        include_reasoning: false,
         response_format: {
           type: "json_schema",
           json_schema: { name: "test_variant", strict: true, schema: responseSchema(input) },
@@ -169,12 +170,12 @@ Do not repeat questions, do not include unsupported facts, keep the answer unamb
   }
   if (!response.ok) {
     if (response.status === 401 || response.status === 403) {
-      throw new GroqGenerationError("authentication", "Groq rejected the API key.");
+      throw new GroqGenerationError("authentication", "Groq rejected the API key.", response.status);
     }
     if (response.status === 429) {
-      throw new GroqGenerationError("rate_limit", "Groq rate limit exceeded.");
+      throw new GroqGenerationError("rate_limit", "Groq rate limit exceeded.", response.status);
     }
-    throw new GroqGenerationError("upstream", `Groq request failed (${response.status}).`);
+    throw new GroqGenerationError("upstream", "Groq request failed.", response.status);
   }
   let raw: Record<string, unknown>;
   try {
