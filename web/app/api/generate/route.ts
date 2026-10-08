@@ -54,10 +54,13 @@ export async function POST(request: NextRequest) {
     });
   } catch (error) {
     const reason = error instanceof GroqGenerationError ? error.reason : "upstream";
-    console.error("Generation failed", { reason });
+    console.error("Generation failed", {
+      reason,
+      upstreamStatus: error instanceof GroqGenerationError ? error.upstreamStatus : undefined,
+    });
     const messages = {
-      configuration: "Groq is not configured on the server.",
-      authentication: "Groq rejected the API key. Replace GROQ_API_KEY in Vercel and redeploy.",
+      configuration: "Сервис генерации не настроен. Сообщите администратору.",
+      authentication: "Сервис генерации требует проверки администратором. Попробуйте позже.",
       rate_limit: "Groq request limit was reached. Wait one minute and retry.",
       timeout: "Groq took too long to answer. Retry the generation.",
       upstream: "Groq is temporarily unavailable. Retry shortly.",

@@ -15,6 +15,7 @@ const manualReviewMigration = readFileSync(fileURLToPath(new URL("../supabase_ma
 const summaryMigration = readFileSync(fileURLToPath(new URL("../supabase_results_summary.sql", import.meta.url)), "utf8");
 const baseSchema = readFileSync(fileURLToPath(new URL("../supabase_v2.sql", import.meta.url)), "utf8");
 const generateRoute = readFileSync(fileURLToPath(new URL("../app/api/generate/route.ts", import.meta.url)), "utf8");
+const groqClient = readFileSync(fileURLToPath(new URL("../lib/groq.ts", import.meta.url)), "utf8");
 const backupScript = fileURLToPath(new URL("../scripts/backup-supabase.sh", import.meta.url));
 const healthWorkflow = readFileSync(fileURLToPath(new URL("../../.github/workflows/production-health.yml", import.meta.url)), "utf8");
 
@@ -33,6 +34,17 @@ test("post-login destination uses the stored profile role", () => {
 test("generation quota allows a reserved request", async () => {
   const result = await reserveGeneration({ rpc: async () => ({ data: true, error: null }) });
   assert.equal(result, "allowed");
+});
+
+test("Groq GPT-OSS requests suppress reasoning with the supported parameter", () => {
+  assert.match(groqClient, /include_reasoning:\s*false/);
+  assert.doesNotMatch(groqClient, /reasoning_format/);
+});
+
+test("Groq failures log only safe status metadata and hide server configuration from teachers", () => {
+  assert.match(groqClient, /public readonly upstreamStatus\?: number/);
+  assert.match(generateRoute, /upstreamStatus:\s*error instanceof GroqGenerationError \? error\.upstreamStatus : undefined/);
+  assert.doesNotMatch(generateRoute, /Replace GROQ_API_KEY/);
 });
 
 test("generation quota denies exhausted requests and fails closed on database errors", async () => {
