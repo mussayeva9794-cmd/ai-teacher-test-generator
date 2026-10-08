@@ -14,7 +14,7 @@ begin
   values (
     new.id,
     coalesce(nullif(trim(new.raw_user_meta_data->>'display_name'), ''), split_part(new.email, '@', 1)),
-    case when new.raw_user_meta_data->>'role' = 'teacher' then 'teacher' else 'student' end
+    'student'
   ) on conflict (id) do nothing;
   return new;
 end;
@@ -44,10 +44,13 @@ create table if not exists public.web_share_links (
   owner_id uuid not null references auth.users(id) on delete cascade,
   token uuid not null unique default gen_random_uuid(),
   variant_name text not null,
+  variant_snapshot jsonb,
   settings jsonb not null default '{}'::jsonb,
   is_active boolean not null default true,
   created_at timestamptz not null default now()
 );
+alter table public.web_share_links
+  add column if not exists variant_snapshot jsonb;
 create index if not exists web_share_links_test on public.web_share_links(test_id);
 
 create table if not exists public.web_attempts (

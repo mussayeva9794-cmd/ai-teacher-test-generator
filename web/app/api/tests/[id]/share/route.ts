@@ -1,6 +1,6 @@
 import type { NextRequest } from "next/server";
 import { actorFromRequest, jsonError } from "@/lib/auth";
-import { parseSettings } from "@/lib/assessment";
+import { isValidVariant, parseSettings } from "@/lib/assessment";
 import { publicTestUrl } from "@/lib/public-url";
 import { userClient } from "@/lib/supabase";
 
@@ -17,13 +17,15 @@ export async function POST(request: NextRequest, { params }: Context) {
   let body: { variant_name?: string; settings?: unknown };
   try { body = await request.json(); } catch { return jsonError("Invalid request body."); }
   const variantName = String(body.variant_name || "");
-  if (!test.variants?.[variantName]) return jsonError("Choose an available variant.");
+  const variantSnapshot = test.variants?.[variantName];
+  if (!isValidVariant(variantSnapshot)) return jsonError("Choose an available variant.");
   const settings = parseSettings(body.settings);
   if (settings.deadline_at && !Number.isFinite(Date.parse(settings.deadline_at))) {
     return jsonError("Invalid deadline.");
   }
   const { data, error } = await db.from("web_share_links").insert({
-    test_id: id, owner_id: actor.id, variant_name: variantName, settings,
+    test_id: id, owner_id: actor.id, variant_name: variantName,
+    variant_snapshot: variantSnapshot, settings,
   }).select("token").single();
   if (error || !data) return jsonError("Could not create a share link.", 503);
   return Response.json({ token: data.token, url: publicTestUrl(request.nextUrl.origin, data.token) });

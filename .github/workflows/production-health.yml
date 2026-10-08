@@ -1,0 +1,60 @@
+name: Production health
+
+on:
+  schedule:
+    - cron: "17 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      ALERT_TITLE: AI Teacher production health check failed
+    steps:
+      - name: Check public health endpoint
+        id: health
+        shell: bash
+        run: |
+          for attempt in 1 2 3; do
+            if curl --fail --silent --show-error --max-time 15 \
+              https://ai-teacher-test-generator.vercel.app/api/health \
+              -o "$RUNNER_TEMP/health.json" && \
+              jq --exit-status '.status == "ok" and .supabase_admin_connected == true and .groq_connected == true and .groq_model_available == true' \
+              "$RUNNER_TEMP/health.json" >/dev/null; then
+              echo "healthy=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            if [ "$attempt" -lt 3 ]; then sleep 15; fi
+          done
+          echo "healthy=false" >> "$GITHUB_OUTPUT"
+
+      - name: Open a single alert issue
+        if: steps.health.outputs.healthy == 'false'
+        shell: bash
+        run: |
+          issue="$(gh issue list --state open --limit 100 --json number,title \
+            --jq '.[] | select(.title == env.ALERT_TITLE) | .number' | head -n 1)"
+          if [ -z "$issue" ]; then
+            gh issue create --title "$ALERT_TITLE" \
+              --body "The production health endpoint failed three checks. Review Vercel function logs and Supabase/Groq status. Workflow: https://github.com/$GH_REPO/actions/runs/$GITHUB_RUN_ID"
+          fi
+
+      - name: Close alert on recovery
+        if: steps.health.outputs.healthy == 'true'
+        shell: bash
+        run: |
+          issue="$(gh issue list --state open --limit 100 --json number,title \
+            --jq '.[] | select(.title == env.ALERT_TITLE) | .number' | head -n 1)"
+          if [ -n "$issue" ]; then
+            gh issue close "$issue" --comment "Production health recovered. Workflow: https://github.com/$GH_REPO/actions/runs/$GITHUB_RUN_ID"
+          fi
+
+      - name: Mark unhealthy run as failed
+        if: steps.health.outputs.healthy == 'false'
+        run: exit 1

@@ -3,5 +3,7 @@ node_modules/
 .env.local
 .env.production.local
 *.tsbuildinfo
+playwright-report/
+test-results/
 AGENTS.md
 CLAUDE.md
