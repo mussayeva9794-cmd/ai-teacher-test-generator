@@ -1,7 +1,6 @@
 import type { NextRequest } from "next/server";
 import { actorFromRequest, jsonError } from "@/lib/auth";
 import { generateVariants, GroqGenerationError, type GenerateInput } from "@/lib/groq";
-import { releaseGenerationQuota, reserveGeneration } from "@/lib/generation-quota";
 import { userClient } from "@/lib/supabase";
 import { adminClient } from "@/lib/supabase-admin";
 
@@ -24,13 +23,23 @@ export async function POST(request: NextRequest) {
     return jsonError("Choose a language.");
   }
   const db = userClient(actor.accessToken);
-  const quota = await reserveGeneration(db);
-  if (quota === "limited") return jsonError("Generation limit reached: 5 requests per hour. Try later.", 429);
-  if (quota === "unavailable") return jsonError("Generation is temporarily unavailable. Check the database migration.", 503);
+  let reservationWindow: string | null;
+  try {
+    const { data, error } = await db.rpc("consume_web_generation_quota_v2");
+    if (error || (data !== null && typeof data !== "string")) {
+      return jsonError("Generation is temporarily unavailable. Check the database migration.", 503);
+    }
+    reservationWindow = data;
+  } catch {
+    return jsonError("Generation is temporarily unavailable. Check the database migration.", 503);
+  }
+  if (reservationWindow === null) return jsonError("Generation limit reached: 5 requests per hour. Try later.", 429);
   const releaseQuota = async () => {
     try {
-      const result = await releaseGenerationQuota(adminClient(), actor.id);
-      if (result === "failed") console.error("Generation quota release failed");
+      const { error } = await adminClient().rpc("release_web_generation_quota_v2", {
+        p_owner_id: actor.id, p_window_start: reservationWindow,
+      });
+      if (error) console.error("Generation quota release failed", { code: error.code });
     } catch {
       console.error("Generation quota release failed", { code: "server_configuration_error" });
     }

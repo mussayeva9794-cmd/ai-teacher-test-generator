@@ -64,8 +64,10 @@ export async function GET() {
       groqNetworkErrorCode = networkErrorCode(error);
     }
   }
+  const healthy = supabaseConfigured && supabaseUrlValid && supabaseSecretFormatValid &&
+    supabaseAdminConnected && groqKeyFormatValid && groqConnected && groqModelAvailable;
   return Response.json({
-    status: "ok",
+    status: healthy ? "ok" : "degraded",
     supabase_configured: supabaseConfigured,
     supabase_url_valid: supabaseUrlValid,
     supabase_secret_format_valid: supabaseSecretFormatValid,
@@ -79,5 +81,5 @@ export async function GET() {
     groq_model_available: groqModelAvailable,
     groq_status: groqStatus,
     groq_network_error_code: groqNetworkErrorCode,
-  }, { headers: { "Cache-Control": "no-store" } });
+  }, { status: healthy ? 200 : 503, headers: { "Cache-Control": "public, s-maxage=20, stale-while-revalidate=40" } });
 }

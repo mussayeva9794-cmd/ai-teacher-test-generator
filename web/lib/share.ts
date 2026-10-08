@@ -12,9 +12,6 @@ export async function shareContext(token: string, actor: Actor) {
     .eq("token", token).maybeSingle();
   if (linkError || !link || !link.is_active) return { error: "This test link is unavailable.", status: 404 } as const;
   const settings = parseSettings(link.settings);
-  if (settings.deadline_at && Date.now() > Date.parse(settings.deadline_at)) {
-    return { error: "The deadline for this test has passed.", status: 403 } as const;
-  }
   if (settings.allowed_students.length && !settings.allowed_students.includes(actor.email)) {
     return { error: "This account is not allowed to open the test.", status: 403 } as const;
   }

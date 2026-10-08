@@ -42,7 +42,11 @@ export function studentVariant(variant: TestVariant) {
   return {
     title: variant.title,
     instructions: variant.instructions,
-    questions: variant.questions.map(({ correct_answer: _answer, explanation: _explanation, ...question }) => question),
+    questions: variant.questions.map(({ correct_answer: _answer, explanation: _explanation, ...question }) => ({
+      ...question,
+      // Matching rows are rendered from the left side only; never send the answer mapping to students.
+      pairs: question.pairs?.map(({ left }) => ({ left, right: "" })),
+    })),
   };
 }
 
@@ -59,25 +63,26 @@ function questionScore(question: Question, answer: unknown): number {
   if (question.type === "short_answer") {
     const expected = normalized(question.correct_answer);
     const student = normalized(answer);
-    if (!student || !expected) return 0;
-    if (student === expected) return 1;
-    const expectedWords = new Set(expected.split(" "));
-    if (expectedWords.size < 3) return 0;
-    const matchingWords = [...new Set(student.split(" "))].filter((word) => expectedWords.has(word) && word.length > 2).length;
-    return matchingWords / expectedWords.size >= 0.7 ? 0.8 : 0;
+    return student && expected && student === expected ? 1 : 0;
   }
   return normalized(answer) === normalized(question.correct_answer) ? 1 : 0;
 }
 
 export function grade(variant: TestVariant, answers: Record<string, unknown>) {
+  const needsReview = (question: Question) => question.type === "short_answer" &&
+    typeof answers[question.id] === "string" && Boolean((answers[question.id] as string).trim()) &&
+    normalized(answers[question.id]) !== normalized(question.correct_answer);
+  const requiresManualReview = variant.questions.some(needsReview);
   const perQuestion = variant.questions.map((question) => ({
     id: question.id,
     skill_tag: question.skill_tag,
     score: questionScore(question, answers[question.id]),
+    requires_manual_review: needsReview(question),
   }));
   const total = perQuestion.reduce((sum, result) => sum + result.score, 0);
   return {
-    percentage: Math.round((total / variant.questions.length) * 10000) / 100,
+    percentage: requiresManualReview ? null : Math.round((total / variant.questions.length) * 10000) / 100,
+    requires_manual_review: requiresManualReview,
     total_score: Math.round(total * 100) / 100,
     total_questions: variant.questions.length,
     per_question: perQuestion,
