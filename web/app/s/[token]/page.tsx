@@ -9,7 +9,7 @@ import type { Question } from "@/lib/types";
 
 type StudentQuestion = Omit<Question, "correct_answer" | "explanation">;
 type StudentTest = {
-  submitted: boolean; title: string; topic: string; variant_name: string;
+  submitted: boolean; title: string; topic: string; variant_name: string; percentage?: number | null;
   variant: { instructions: string; questions: StudentQuestion[] };
   settings: { one_question_at_a_time: boolean; reveal_score: boolean };
   answers: Record<string, unknown>; closes_at: string | null; saved_at: string; expired?: boolean;
@@ -44,7 +44,11 @@ export default function StudentPage() {
       setName(String(data.user.user_metadata?.display_name || data.user.email || "Ученик"));
       api<StudentTest>(`/api/share/${token}`).then(result => {
         if (!active) return;
-        if (result.submitted) { setSubmitted(true); return; }
+        if (result.submitted) {
+          setPercentage(result.percentage ?? null);
+          setSubmitted(true);
+          return;
+        }
         setTest(result); setAnswers(result.answers || {}); setStatus("Сохранено");
         latestAnswers.current = result.answers || {};
         lastSaved.current = JSON.stringify(result.answers || {}); loaded.current = true;

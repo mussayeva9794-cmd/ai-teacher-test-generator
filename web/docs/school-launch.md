@@ -32,7 +32,7 @@ The school does not currently have a sender domain. Supabase's built-in Auth mai
 
 Choose one enrollment path before inviting a class:
 
-- If every pupil has a school-approved Google account, implement and configure [Supabase Google OAuth](https://supabase.com/docs/guides/auth/social-login/auth-google). This avoids confirmation emails for Google sign-in; Google Cloud OAuth settings and a real-device sign-in test are still required. This path is **not yet implemented** in this app.
+- If every pupil has a school-approved Google account, use the implemented [Supabase Google OAuth](https://supabase.com/docs/guides/auth/social-login/auth-google) flow. Google sign-in avoids confirmation emails, but a real-device sign-in test and correct Google Cloud audience, test-user, and redirect settings are still required before inviting a class. New Google users receive the student role; teacher access remains administrator-assigned.
 - Otherwise obtain an approved sender identity and a custom SMTP provider or Send Email hook. The sender need not match the public `vercel.app` website address, but it must satisfy the mail provider's verification and delivery rules. Verify confirmation, password reset, delivery to pupils, and the provider's hourly quota before bulk enrollment.
 
 Until one path is configured and tested, keep enrollment to a few test users and do not advertise the site to a whole class.

@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { defaultDestination, signupOptions } from "../lib/signup.ts";
+import { oauthRequestedNext, safeNext } from "../lib/safe-next.ts";
 import { releaseGenerationQuota, reserveGeneration } from "../lib/generation-quota.ts";
 
 const migration = readFileSync(fileURLToPath(new URL("../supabase_launch_hardening.sql", import.meta.url)), "utf8");
@@ -29,6 +30,28 @@ test("post-login destination uses the stored profile role", () => {
   assert.equal(defaultDestination("teacher"), "/dashboard");
   assert.equal(defaultDestination("student"), "/");
   assert.equal(defaultDestination(undefined), "/");
+});
+
+test("Google OAuth preserves only an explicit safe destination and otherwise uses the role default", () => {
+  assert.equal(oauthRequestedNext(null), null);
+  assert.equal(oauthRequestedNext("/tests/123"), "/tests/123");
+  assert.equal(oauthRequestedNext("//evil.example"), null);
+  assert.equal(safeNext(oauthRequestedNext(null), defaultDestination("teacher")), "/dashboard");
+});
+
+test("post-login destination rejects protocol-relative and backslash-based external URLs", () => {
+  assert.equal(safeNext("/\\evil.example", "/dashboard"), "/dashboard");
+  assert.equal(safeNext("//evil.example/path", "/dashboard"), "/dashboard");
+  assert.equal(safeNext("https://evil.example", "/dashboard"), "/dashboard");
+  assert.equal(safeNext("/s/test?source=mail#start", "/dashboard"), "/s/test?source=mail#start");
+});
+
+test("a resubmitted share link only exposes a grade when the teacher enabled score reveal", () => {
+  const shareRoute = readFileSync(fileURLToPath(new URL("../app/api/share/[token]/route.ts", import.meta.url)), "utf8");
+  const studentPage = readFileSync(fileURLToPath(new URL("../app/s/[token]/page.tsx", import.meta.url)), "utf8");
+  assert.match(shareRoute, /select\("id,percentage"\)/);
+  assert.match(shareRoute, /percentage:\s*settings\.reveal_score\s*\?\s*prior\.percentage\s*:\s*null/);
+  assert.match(studentPage, /setPercentage\(result\.percentage \?\? null\)/);
 });
 
 test("generation quota allows a reserved request", async () => {
