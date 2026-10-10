@@ -7,7 +7,12 @@ import type { TestRow } from "./types";
 
 export async function shareContext(token: string, actor: Actor) {
   if (actor.role !== "student") return { error: "Only student accounts can open a test.", status: 403 } as const;
-  const admin = adminClient();
+  let admin: ReturnType<typeof adminClient>;
+  try {
+    admin = adminClient();
+  } catch {
+    return { error: "Test service is temporarily unavailable. Please retry later.", status: 503 } as const;
+  }
   let { data: link, error: linkError } = await admin.from("web_share_links")
     .select("id,test_id,owner_id,class_id,variant_name,variant_snapshot,settings,is_active")
     .eq("token", token).maybeSingle();
