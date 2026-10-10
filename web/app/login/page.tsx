@@ -1,12 +1,12 @@
 "use client";
 
 import { useSearchParams, useRouter } from "next/navigation";
-import { Suspense, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { browserClient } from "@/lib/supabase";
-import { safeNext } from "@/lib/client";
+import { oauthRequestedNext, safeNext } from "@/lib/client";
 import { signInWithPasskey } from "@/lib/passkeys";
-import { defaultDestination, signupOptions } from "@/lib/signup";
+import { defaultDestination, googleOAuthOptions, signupOptions } from "@/lib/signup";
 
 function LoginForm() {
   const search = useSearchParams();
@@ -16,15 +16,62 @@ function LoginForm() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
+  const [oauthUserId, setOauthUserId] = useState<string | null>(null);
+  const [oauthNext, setOauthNext] = useState<string | null>(null);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const requestedNext = search.get("next");
   const signupNext = safeNext(requestedNext, "/");
 
-  async function destination(userId: string) {
+  async function destination(userId: string, requestedDestination = requestedNext) {
     const { data } = await browserClient().from("web_profiles").select("role").eq("id", userId).single();
-    return safeNext(requestedNext, defaultDestination(data?.role));
+    return safeNext(requestedDestination, defaultDestination(data?.role));
   }
+
+  useEffect(() => {
+    const searchParams = new URLSearchParams(window.location.search);
+    const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+    const callback = Boolean(searchParams.get("code") || hashParams.get("access_token") || hashParams.get("error_description"));
+    const providerError = searchParams.get("error_description") || hashParams.get("error_description");
+    if (callback) setOauthNext(oauthRequestedNext(window.sessionStorage.getItem("ai_teacher_oauth_next")));
+    if (providerError) {
+      setError("Не удалось завершить вход через Google. Попробуйте ещё раз.");
+      window.sessionStorage.removeItem("ai_teacher_oauth_next");
+      setBusy(false);
+    }
+    let auth: ReturnType<typeof browserClient>["auth"];
+    try { auth = browserClient().auth; }
+    catch {
+      setError("Вход временно недоступен: не настроено подключение к Supabase.");
+      return;
+    }
+    const { data: { subscription } } = auth.onAuthStateChange((_event, session) => {
+      if (callback && session) setOauthUserId(session.user.id);
+    });
+    if (callback) {
+      void auth.getSession().then(({ data }) => {
+        if (data.session) setOauthUserId(data.session.user.id);
+      });
+    }
+    return () => subscription.unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    if (!oauthUserId) return;
+    let active = true;
+    setBusy(true);
+    void destination(oauthUserId, oauthNext || requestedNext).then(next => {
+      if (active) {
+        window.sessionStorage.removeItem("ai_teacher_oauth_next");
+        router.replace(next);
+      }
+    }).catch(() => {
+      if (active) setError("Вход выполнен, но профиль ещё не готов. Обновите страницу или войдите снова.");
+    }).finally(() => {
+      if (active) setBusy(false);
+    });
+    return () => { active = false; };
+  }, [oauthUserId, oauthNext, requestedNext, router]);
 
   async function submit(event: React.FormEvent) {
     event.preventDefault(); setBusy(true); setError(""); setMessage("");
@@ -57,6 +104,23 @@ function LoginForm() {
     } finally { setBusy(false); }
   }
 
+  async function googleSignIn() {
+    setBusy(true); setError(""); setMessage("");
+    try {
+      const oauthNext = oauthRequestedNext(requestedNext);
+      if (oauthNext) window.sessionStorage.setItem("ai_teacher_oauth_next", oauthNext);
+      else window.sessionStorage.removeItem("ai_teacher_oauth_next");
+      const { error: oauthError } = await browserClient().auth.signInWithOAuth(
+        googleOAuthOptions(window.location.origin),
+      );
+      if (oauthError) throw oauthError;
+    } catch (cause) {
+      window.sessionStorage.removeItem("ai_teacher_oauth_next");
+      setError(cause instanceof Error ? cause.message : "Не удалось начать вход через Google.");
+      setBusy(false);
+    }
+  }
+
   async function requestPasswordReset() {
     setBusy(true); setError(""); setMessage("");
     try {
@@ -80,7 +144,11 @@ function LoginForm() {
         {error && <div className="error" role="alert">{error}</div>}{message && <div className="success" role="status">{message}</div>}
         <button className="btn primary" disabled={busy}>{busy ? "Подождите..." : mode === "signup" ? "Создать аккаунт" : "Войти"}</button>
       </form>
-      {mode === "signin" && <div className="stack" style={{ marginTop: 18 }}><button type="button" className="btn ghost small" disabled={busy || !email.trim()} onClick={requestPasswordReset}>Забыли пароль?</button><p className="muted small" style={{ textAlign: "center" }}>или</p><button type="button" className="btn" disabled={busy} onClick={passkeySignIn}>Войти с Face ID / Touch ID</button><p className="muted small">Также может потребоваться код разблокировки устройства. Пароль остаётся доступным.</p></div>}
+      {mode === "signin" && <div className="stack" style={{ marginTop: 14 }}><button type="button" className="btn ghost small" disabled={busy || !email.trim()} onClick={requestPasswordReset}>Забыли пароль?</button></div>}
+      <div className="stack" style={{ marginTop: 18 }}><p className="muted small" style={{ textAlign: "center", marginBottom: 0 }}>или используйте школьный Google-аккаунт</p><button type="button" className="btn" disabled={busy} onClick={googleSignIn}>Войти или зарегистрироваться через Google</button>
+        {mode === "signin" && <><p className="muted small" style={{ textAlign: "center", marginBottom: 0 }}>или войти без Google</p><button type="button" className="btn" disabled={busy} onClick={passkeySignIn}>Войти с Face ID / Touch ID</button><p className="muted small">Также может потребоваться код разблокировки устройства. Пароль остаётся доступным.</p></>}
+      </div>
+      <p className="small muted" style={{ textAlign: "center", marginTop: 18 }}>Как сервис использует данные аккаунта и учебные данные: <Link href="/privacy">политика конфиденциальности</Link>.</p>
     </main></div>;
 }
 

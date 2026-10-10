@@ -26,6 +26,14 @@ export type ShareSettings = {
   reveal_score: boolean;
 };
 
+export type ClassRow = {
+  id: string;
+  name: string;
+  is_active: boolean;
+  created_at: string;
+  web_class_members: { id: string; email: string; student_id: string | null; created_at: string }[];
+};
+
 export type TestRow = {
   id: string;
   owner_id: string;

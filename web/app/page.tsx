@@ -51,7 +51,7 @@ export default function Home() {
           <div className="panel process-card"><span className="process-number">03</span><h3>Увидьте результат</h3><p className="muted">Смотрите ответы и результаты в кабинете учителя.</p></div>
         </div>
       </section>
-      <footer className="footer"><span>AI Teacher Test Generator</span><Link href="/account">Face ID / Touch ID</Link></footer>
+      <footer className="footer"><span>AI Teacher Test Generator</span><div className="row"><Link href="/privacy">Конфиденциальность</Link><Link href="/account">Face ID / Touch ID</Link></div></footer>
     </div>
   );
 }

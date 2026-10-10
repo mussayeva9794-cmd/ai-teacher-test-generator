@@ -46,7 +46,7 @@ test("a non-null invalid snapshot fails closed instead of grading against edited
 });
 
 test("student share context reads the snapshot for both open and submit consumers", () => {
-  assert.match(shareContext, /select\("id,test_id,variant_name,variant_snapshot,settings,is_active"\)/);
+  assert.match(shareContext, /select\("id,test_id,owner_id,class_id,variant_name,variant_snapshot,settings,is_active"\)/);
   assert.match(shareContext, /selectShareVariant\(link\.variant_snapshot, row\.variants, link\.variant_name, isValidVariant\)/);
 });
 
