@@ -3,6 +3,7 @@ import { adminClient } from "./supabase-admin";
 import { isValidVariant, parseSettings } from "./assessment";
 import { selectShareVariant } from "./share-variant";
 import { isMissingClassSchema } from "./schema-compat";
+import { isAllowedByEmailList } from "./share-access";
 import type { TestRow } from "./types";
 
 export async function shareContext(token: string, actor: Actor) {
@@ -60,7 +61,7 @@ export async function shareContext(token: string, actor: Actor) {
         if (!existing) return { error: "This account is not enrolled in the selected class.", status: 403 } as const;
       }
     }
-  } else if (settings.allowed_students.length && !settings.allowed_students.includes(actor.email)) {
+  } else if (!isAllowedByEmailList(actor.email, actor.emailVerified, settings.allowed_students)) {
     return { error: "This account is not allowed to open the test.", status: 403 } as const;
   }
   const { data: test, error: testError } = await admin.from("web_tests")

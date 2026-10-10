@@ -5,6 +5,7 @@ import { verifiedGoogleIdentityEmail } from "./google-identity";
 export type Actor = {
   id: string;
   email: string;
+  emailVerified: boolean;
   hasGoogleIdentity: boolean;
   googleEmail: string | null;
   role: "teacher" | "student";
@@ -24,14 +25,17 @@ export async function actorFromRequest(request: NextRequest): Promise<Actor | nu
     .eq("id", userData.user.id)
     .single();
   if (profileError || !profile || !["teacher", "student"].includes(profile.role)) return null;
+  const email = (userData.user.email || "").trim().toLowerCase();
+  const googleEmail = verifiedGoogleIdentityEmail(userData.user.identities);
   return {
     id: userData.user.id,
-    email: (userData.user.email || "").toLowerCase(),
+    email,
+    emailVerified: Boolean(userData.user.email_confirmed_at || googleEmail === email),
     hasGoogleIdentity: Boolean(
       userData.user.app_metadata?.providers?.includes("google") ||
       userData.user.identities?.some((identity) => identity.provider === "google"),
     ),
-    googleEmail: verifiedGoogleIdentityEmail(userData.user.identities),
+    googleEmail,
     role: profile.role,
     name: profile.display_name,
     accessToken: token,

@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { normalizedClassEmails, normalizedClassName } from "../lib/classes.ts";
 import { verifiedGoogleIdentityEmail } from "../lib/google-identity.ts";
+import { isAllowedByEmailList } from "../lib/share-access.ts";
 import { googleOAuthOptions } from "../lib/signup.ts";
 
 const root = (path) => fileURLToPath(new URL(path, import.meta.url));
@@ -40,6 +41,13 @@ test("only the verified email from the Google identity can claim a class invitat
     { provider: "email", identity_data: { email: "child@school.kz", email_verified: true } },
   ]), null);
   assert.equal(verifiedGoogleIdentityEmail(null), null);
+});
+
+test("email-restricted share links require a verified matching email", () => {
+  assert.equal(isAllowedByEmailList(" Student@School.kz ", true, ["student@school.kz"]), true);
+  assert.equal(isAllowedByEmailList("student@school.kz", false, ["student@school.kz"]), false);
+  assert.equal(isAllowedByEmailList("other@school.kz", true, ["student@school.kz"]), false);
+  assert.equal(isAllowedByEmailList("unverified@school.kz", false, []), true);
 });
 
 test("Google sign-in returns to an internal route and asks shared devices to choose an account", () => {
