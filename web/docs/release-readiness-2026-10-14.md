@@ -11,10 +11,10 @@ The current public site is reachable. Its health endpoint returned HTTP 200 and 
 ## Evidence collected
 
 - Git working tree was clean before this report and the security patch; checked-out branch was `release/school-pilot-hardening` tracking `origin/release/school-pilot-hardening`.
-- GitHub PR #3, “Merge Google sign-in and class-based tests into main”, is open, Draft, not merged, and reported mergeable. Head: `03a5c6bdb8fdf97d766afa299d2fe6b996396342`; base: `main` at `62c09b53f8c921f4c0fe7fff5c6673b09be51a0e`.
-- GitHub Actions Web CI run 12 passed on the PR head: unit tests, TypeScript check, `npm audit`, production build, and Playwright smoke. The smoke tests are unauthenticated and are not an exam acceptance test.
+- GitHub PR #3, “Merge Google sign-in and class-based tests into main”, is open, Draft, not merged, and reported mergeable. Head: `924f9e6586581c8f055389a2be99164b236a9031`; base: `main` at `62c09b53f8c921f4c0fe7fff5c6673b09be51a0e`.
+- GitHub Actions Web CI run 14 (run ID `38531124410`) passed on that exact PR head: unit tests, TypeScript check, `npm audit`, production build, and Playwright unauthenticated smoke. The smoke tests are not an exam acceptance test.
 - Local sequential unit run passed 74/74 tests after the legacy-lockdown regression test was added. A parallel local run stalled in this filesystem and was stopped; it was not counted as a pass.
-- A direct unauthenticated request to the PR Preview returned HTTP 302 to Vercel SSO. The Preview cannot be used by pupils until the deployment is accessible to the test team; do not disable project protection as a workaround.
+- Before the latest patch, a direct unauthenticated request to the PR Preview returned HTTP 302 to Vercel SSO. The current post-push Preview URL/access has not been verified because this session has no Vercel team access; do not disable project protection as a workaround.
 - Public production returned HTTP 200 for `/` and `/login?mode=signup`, and `/api/health` returned HTTP 200 with Supabase and Groq healthy. `/classes` and `/api/classes` returned HTTP 404, so the class feature from the PR is not on the currently observed production deployment. `/api/tests/<id>/share` rejected an unauthenticated request with HTTP 401, as expected.
 - No Vercel team was visible to the current integration, and no Supabase connector was available. Production database state, deployment configuration, OAuth configuration, and logs were not inspected or changed.
 
@@ -22,7 +22,7 @@ The current public site is reachable. Its health endpoint returned HTTP 200 and 
 
 The legacy Python schema contains `teacher_audit_logs`, `teacher_usage_events`, `teacher_groups`, `teacher_group_students`, and `schema_meta`, but the legacy-table lockdown omitted them. The lockdown list now includes all tables declared in `supabase_schema.sql`, and a regression test compares the two lists. This is a repository change only: the SQL has **not** been applied to Supabase.
 
-The added lockdown regression test passed in the targeted suite (16/16), and the complete sequential web unit suite passed (74/74). GitHub CI cited above is for the earlier PR head; the new patch still needs its own CI run.
+The added lockdown regression test passed in the targeted suite (16/16), and the complete sequential web unit suite passed (74/74). GitHub CI run 14 passed on the exact committed patch.
 
 The inspected PR code also has these properties, which still require live validation:
 
