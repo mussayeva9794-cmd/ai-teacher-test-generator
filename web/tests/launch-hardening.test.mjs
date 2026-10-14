@@ -15,6 +15,8 @@ const productionAudit = readFileSync(fileURLToPath(new URL("../supabase_school_p
 const manualReviewMigration = readFileSync(fileURLToPath(new URL("../supabase_manual_review.sql", import.meta.url)), "utf8");
 const summaryMigration = readFileSync(fileURLToPath(new URL("../supabase_results_summary.sql", import.meta.url)), "utf8");
 const baseSchema = readFileSync(fileURLToPath(new URL("../supabase_v2.sql", import.meta.url)), "utf8");
+const legacySchema = readFileSync(fileURLToPath(new URL("../../supabase_schema.sql", import.meta.url)), "utf8");
+const legacyLockdown = readFileSync(fileURLToPath(new URL("../supabase_legacy_public_tables_lockdown.sql", import.meta.url)), "utf8");
 const generateRoute = readFileSync(fileURLToPath(new URL("../app/api/generate/route.ts", import.meta.url)), "utf8");
 const groqClient = readFileSync(fileURLToPath(new URL("../lib/groq.ts", import.meta.url)), "utf8");
 const backupScript = fileURLToPath(new URL("../scripts/backup-supabase.sh", import.meta.url));
@@ -95,6 +97,20 @@ test("school migrations preserve attempt rows, add one-attempt enforcement, and 
   assert.match(manualReviewMigration, /alter column percentage drop not null/i);
   assert.match(summaryMigration, /security invoker/i);
   assert.match(summaryMigration, /grant execute on function public\.web_test_attempt_summary\(uuid\) to authenticated/i);
+});
+
+test("legacy lockdown covers every table declared by the Python app schema", () => {
+  const schemaTables = [...legacySchema.matchAll(/create table if not exists\s+([a-z_][a-z0-9_]*)/gi)]
+    .map(([, table]) => table);
+  const lockdownTables = new Set([...legacyLockdown.matchAll(/'([a-z_][a-z0-9_]*)'/g)]
+    .map(([, table]) => table));
+
+  assert.ok(schemaTables.length > 0, "legacy schema should declare tables");
+  for (const table of schemaTables) {
+    assert.ok(lockdownTables.has(table), `legacy table ${table} must be included in lockdown`);
+  }
+  assert.match(legacyLockdown, /enable row level security/i);
+  assert.match(legacyLockdown, /revoke all on table[\s\S]*from public, anon, authenticated/i);
 });
 
 test("generation quota is enforced inside the database with a fixed cap", () => {
