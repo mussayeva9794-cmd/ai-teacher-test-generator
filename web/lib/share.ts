@@ -14,17 +14,14 @@ export async function shareContext(token: string, actor: Actor) {
   } catch {
     return { error: "Test service is temporarily unavailable. Please retry later.", status: 503 } as const;
   }
-  let { data: link, error: linkError } = await admin.from("web_share_links")
+  const { data: link, error: linkError } = await admin.from("web_share_links")
     .select("id,test_id,owner_id,class_id,variant_name,variant_snapshot,settings,is_active")
     .eq("token", token).maybeSingle();
   if (isMissingClassSchema(linkError)) {
-    const legacy = await admin.from("web_share_links")
-      .select("id,test_id,owner_id,variant_name,variant_snapshot,settings,is_active")
-      .eq("token", token).maybeSingle();
-    link = legacy.data ? { ...legacy.data, class_id: null } : null;
-    linkError = legacy.error;
+    return { error: "Test access is temporarily unavailable. Please retry later.", status: 503 } as const;
   }
-  if (linkError || !link || !link.is_active) return { error: "This test link is unavailable.", status: 404 } as const;
+  if (linkError) return { error: "Test access is temporarily unavailable. Please retry later.", status: 503 } as const;
+  if (!link || !link.is_active) return { error: "This test link is unavailable.", status: 404 } as const;
   const settings = parseSettings(link.settings);
   if (link.class_id) {
     if (!actor.hasGoogleIdentity || !actor.googleEmail) {

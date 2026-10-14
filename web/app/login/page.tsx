@@ -6,7 +6,7 @@ import Link from "next/link";
 import { browserClient } from "@/lib/supabase";
 import { oauthRequestedNext, safeNext } from "@/lib/client";
 import { signInWithPasskey } from "@/lib/passkeys";
-import { defaultDestination, googleOAuthOptions, signupOptions } from "@/lib/signup";
+import { defaultDestination, googleOAuthOptions, roleFromProfileResult, signupOptions } from "@/lib/signup";
 
 function LoginForm() {
   const search = useSearchParams();
@@ -24,8 +24,9 @@ function LoginForm() {
   const signupNext = safeNext(requestedNext, "/");
 
   async function destination(userId: string, requestedDestination = requestedNext) {
-    const { data } = await browserClient().from("web_profiles").select("role").eq("id", userId).single();
-    return safeNext(requestedDestination, defaultDestination(data?.role));
+    const { data, error: profileError } = await browserClient().from("web_profiles").select("role").eq("id", userId).single();
+    const role = roleFromProfileResult(data, profileError);
+    return safeNext(requestedDestination, defaultDestination(role));
   }
 
   useEffect(() => {
@@ -66,7 +67,7 @@ function LoginForm() {
         router.replace(next);
       }
     }).catch(() => {
-      if (active) setError("Вход выполнен, но профиль ещё не готов. Обновите страницу или войдите снова.");
+      if (active) setError("Вход выполнен, но профиль не удалось загрузить. Попробуйте войти ещё раз.");
     }).finally(() => {
       if (active) setBusy(false);
     });

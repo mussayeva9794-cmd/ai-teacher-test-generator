@@ -4,8 +4,8 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { normalizedClassEmails, normalizedClassName } from "../lib/classes.ts";
 import { verifiedGoogleIdentityEmail } from "../lib/google-identity.ts";
-import { isAllowedByEmailList } from "../lib/share-access.ts";
-import { googleOAuthOptions } from "../lib/signup.ts";
+import { hasExplicitShareScope, isAllowedByEmailList, normalizeEmailAllowlist } from "../lib/share-access.ts";
+import { googleOAuthOptions, roleFromProfileResult } from "../lib/signup.ts";
 
 const root = (path) => fileURLToPath(new URL(path, import.meta.url));
 const login = readFileSync(root("../app/login/page.tsx"), "utf8");
@@ -50,6 +50,30 @@ test("email-restricted share links require a verified matching email", () => {
   assert.equal(isAllowedByEmailList("unverified@school.kz", false, []), true);
 });
 
+test("new share links require an explicit class, allowlist, or open-access choice", () => {
+  assert.equal(hasExplicitShareScope(null, [], false), false);
+  assert.equal(hasExplicitShareScope("class-id", [], false), true);
+  assert.equal(hasExplicitShareScope(null, ["student@school.kz"], false), true);
+  assert.equal(hasExplicitShareScope(null, [], true), true);
+  assert.equal(hasExplicitShareScope("class-id", ["student@school.kz"], false), false);
+  assert.equal(hasExplicitShareScope("class-id", [], true), false);
+  assert.equal(hasExplicitShareScope(null, ["student@school.kz"], true), false);
+});
+
+test("email allowlists are normalized, deduplicated, and size/format checked", () => {
+  assert.deepEqual(normalizeEmailAllowlist([" Student@School.kz ", "student@school.kz"]), ["student@school.kz"]);
+  assert.equal(normalizeEmailAllowlist(["not-an-email"]), null);
+  assert.equal(normalizeEmailAllowlist(Array(101).fill("a@school.kz")), null);
+});
+
+test("profile lookup errors do not silently route authenticated users as students", () => {
+  assert.equal(roleFromProfileResult({ role: "teacher" }, null), "teacher");
+  assert.equal(roleFromProfileResult({ role: "student" }, null), "student");
+  assert.throws(() => roleFromProfileResult(null, null), /Профиль аккаунта пока недоступен/);
+  assert.throws(() => roleFromProfileResult({ role: "student" }, new Error("network")), /Профиль аккаунта пока недоступен/);
+  assert.throws(() => roleFromProfileResult({ role: "admin" }, null), /Профиль аккаунта пока недоступен/);
+});
+
 test("Google sign-in returns to an internal route and asks shared devices to choose an account", () => {
   const config = googleOAuthOptions("https://ai-teacher-test-generator.vercel.app");
   assert.equal(config.provider, "google");
@@ -78,7 +102,16 @@ test("class rosters cannot self-assign teacher roles and API mutations require t
 test("share creation binds an active teacher-owned class and clears per-link email rules", () => {
   assert.match(shareApi, /\.eq\("owner_id", actor\.id\)\.eq\("is_active", true\)/);
   assert.match(shareApi, /class_id: classId/);
-  assert.match(shareApi, /settings: classId \? \{ \.\.\.settings, allowed_students: \[\] \} : settings/);
+  assert.match(shareApi, /hasExplicitShareScope\(classId, allowedStudents, allowAnyStudent\)/);
+  assert.match(shareApi, /allow_any_student/);
+  assert.match(shareApi, /Choose a class, enter allowed student emails, or explicitly allow any student/);
+  assert.match(shareApi, /settings: \{ \.\.\.settings, allowed_students: classId \? \[\] : allowedStudents \}/);
+});
+
+test("creating an open link requires an explicit confirmation", () => {
+  const page = readFileSync(root("../app/tests/[id]/page.tsx"), "utf8");
+  assert.match(page, /window\.confirm\("Список учеников пуст\.[\s\S]*Создать открытую ссылку\?"\)/);
+  assert.match(page, /allow_any_student: allowAnyStudent/);
 });
 
 test("class-restricted share links require an explicit teacher selection", () => {
@@ -99,12 +132,18 @@ test("every class-scoped open, draft, and submit path verifies the enrolled stud
   assert.match(auth, /identity\.provider === "google"/);
 });
 
-test("legacy links continue working before the class migration is installed", () => {
+test("student share access fails closed when the class schema is unavailable", () => {
   assert.match(shareAccess, /isMissingClassSchema\(linkError\)/);
-  assert.match(shareAccess, /class_id: null/);
+  assert.match(shareAccess, /Test access is temporarily unavailable[\s\S]*status: 503/);
+  assert.doesNotMatch(shareAccess, /const legacy =/);
   assert.match(compat, /PGRST204|42703/);
-  assert.match(shareApi, /isMissingClassSchema\(error\)/);
-  assert.match(shareApi, /\.\.\.\(classId \? \{ class_id: classId \} : \{\}\)/);
+});
+
+test("teacher test pages can list legacy links before the class migration", () => {
+  assert.match(shareApi, /import \{ isMissingClassSchema \} from "@\/lib\/schema-compat"/);
+  assert.match(shareApi, /if \(isMissingClassSchema\(error\)\) \{[\s\S]*const legacy = await db\.from\("web_share_links"\)/);
+  assert.match(shareApi, /select\("id,token,variant_name,settings,is_active,created_at"\)/);
+  assert.match(shareApi, /class_id: null/);
 });
 
 test("class migration is additive, keeps old links unscoped, and protects class and roster rows with RLS", () => {

@@ -6,6 +6,7 @@ import Link from "next/link";
 import { api } from "@/lib/client";
 import type { ClassRow, TestRow, TestVariant, ShareSettings } from "@/lib/types";
 import { csvCell } from "@/lib/csv-export";
+import { hasExplicitShareScope, normalizeEmailAllowlist } from "@/lib/share-access";
 
 type LinkRow = { id: string; token: string; url: string; variant_name: string; class_id: string | null; is_active: boolean; settings: ShareSettings; created_at: string };
 type Attempt = { id: string; student_name: string; csv_student_name?: string; variant_name: string; percentage: number | null; answers: Record<string, unknown>; result: { requires_manual_review?: boolean; manually_reviewed_by?: string; per_question_scoring?: string; per_question: { id: string; skill_tag: string; score: number | null; requires_manual_review?: boolean }[] }; submitted_at: string };
@@ -93,9 +94,23 @@ export default function TestPage() {
     finally { setBusy(false); }
   }
   async function createLink() {
-    setBusy(true); setError(""); setMessage("");
+    setError(""); setMessage("");
+    const allowedStudents = selectedClassId
+      ? []
+      : normalizeEmailAllowlist(allowedText.split(/[\s,;]+/).filter(Boolean));
+    if (!allowedStudents) {
+      setError("Проверьте список учеников: не более 100 корректных email-адресов.");
+      return;
+    }
+    const allowAnyStudent = !selectedClassId && allowedStudents.length === 0;
+    if (!hasExplicitShareScope(selectedClassId || null, allowedStudents, allowAnyStudent)) {
+      setError("Выберите класс или укажите учеников, которым будет доступен тест.");
+      return;
+    }
+    if (allowAnyStudent && !window.confirm("Список учеников пуст. Ссылка будет доступна любому вошедшему ученику. Создать открытую ссылку?")) return;
+    setBusy(true);
     try {
-      const { url } = await api<{ url: string }>(`/api/tests/${id}/share`, { method: "POST", body: JSON.stringify({ variant_name: variantName, class_id: selectedClassId || null, settings: { ...settings, allowed_students: selectedClassId ? [] : allowedText.split(/[\s,;]+/).filter(Boolean) } }) });
+      const { url } = await api<{ url: string }>(`/api/tests/${id}/share`, { method: "POST", body: JSON.stringify({ variant_name: variantName, class_id: selectedClassId || null, allow_any_student: allowAnyStudent, settings: { ...settings, allowed_students: allowedStudents } }) });
       const copied = await navigator.clipboard.writeText(url).then(() => true).catch(() => false);
       setMessage(`${copied ? "Ссылка создана и скопирована" : "Ссылка создана; скопируйте её вручную"}: ${url}`); await refresh();
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Не удалось создать ссылку."); }

@@ -20,3 +20,13 @@ export function googleOAuthOptions(origin: string) {
 export function defaultDestination(role: unknown): string {
   return role === "teacher" ? "/dashboard" : "/";
 }
+
+export function roleFromProfileResult(
+  profile: { role?: unknown } | null,
+  error: unknown,
+): "teacher" | "student" {
+  if (error || !profile || (profile.role !== "teacher" && profile.role !== "student")) {
+    throw new Error("Профиль аккаунта пока недоступен. Попробуйте ещё раз.");
+  }
+  return profile.role;
+}
