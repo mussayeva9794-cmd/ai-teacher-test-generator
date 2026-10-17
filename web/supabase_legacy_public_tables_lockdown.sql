@@ -12,7 +12,12 @@ declare
     'teacher_attempts',
     'teacher_share_links',
     'teacher_student_drafts',
-    'teacher_api_error_logs'
+    'teacher_api_error_logs',
+    'teacher_audit_logs',
+    'teacher_usage_events',
+    'teacher_groups',
+    'teacher_group_students',
+    'schema_meta'
   ];
 begin
   foreach table_name in array legacy_tables loop

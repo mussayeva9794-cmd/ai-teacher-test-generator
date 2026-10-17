@@ -11,10 +11,14 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   const context = await shareContext(token, actor);
   if ("error" in context && context.error) return jsonError(context.error, context.status);
   const { admin, test, link, settings, variant } = context;
-  const { data: prior, error: priorError } = await admin.from("web_attempts").select("id")
+  const { data: prior, error: priorError } = await admin.from("web_attempts").select("id,percentage")
     .eq("test_id", test.id).eq("student_id", actor.id).maybeSingle();
   if (priorError) return jsonError("Could not check your submission status.", 503);
-  if (prior) return Response.json({ submitted: true, title: test.title });
+  if (prior) return Response.json({
+    submitted: true,
+    title: test.title,
+    percentage: settings.reveal_score ? prior.percentage : null,
+  });
   let { data: draft, error: loadError } = await admin.from("web_drafts")
     .select("answers,started_at,updated_at").eq("link_id", link.id).eq("student_id", actor.id).maybeSingle();
   if (loadError) return jsonError("Could not load your draft.", 503);

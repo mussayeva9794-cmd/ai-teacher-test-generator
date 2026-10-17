@@ -1,4 +1,5 @@
 import { browserClient } from "./supabase";
+export { oauthRequestedNext, safeNext } from "./safe-next";
 
 export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   const { data } = await browserClient().auth.getSession();
@@ -13,8 +14,4 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(payload.error || `Request failed (${response.status})`);
   return payload as T;
-}
-
-export function safeNext(value: string | null, fallback: string): string {
-  return value?.startsWith("/") && !value.startsWith("//") ? value : fallback;
 }

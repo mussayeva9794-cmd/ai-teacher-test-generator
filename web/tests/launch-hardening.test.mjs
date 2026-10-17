@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { defaultDestination, signupOptions } from "../lib/signup.ts";
+import { oauthRequestedNext, safeNext } from "../lib/safe-next.ts";
 import { releaseGenerationQuota, reserveGeneration } from "../lib/generation-quota.ts";
 
 const migration = readFileSync(fileURLToPath(new URL("../supabase_launch_hardening.sql", import.meta.url)), "utf8");
@@ -14,6 +15,8 @@ const productionAudit = readFileSync(fileURLToPath(new URL("../supabase_school_p
 const manualReviewMigration = readFileSync(fileURLToPath(new URL("../supabase_manual_review.sql", import.meta.url)), "utf8");
 const summaryMigration = readFileSync(fileURLToPath(new URL("../supabase_results_summary.sql", import.meta.url)), "utf8");
 const baseSchema = readFileSync(fileURLToPath(new URL("../supabase_v2.sql", import.meta.url)), "utf8");
+const legacySchema = readFileSync(fileURLToPath(new URL("../../supabase_schema.sql", import.meta.url)), "utf8");
+const legacyLockdown = readFileSync(fileURLToPath(new URL("../supabase_legacy_public_tables_lockdown.sql", import.meta.url)), "utf8");
 const generateRoute = readFileSync(fileURLToPath(new URL("../app/api/generate/route.ts", import.meta.url)), "utf8");
 const groqClient = readFileSync(fileURLToPath(new URL("../lib/groq.ts", import.meta.url)), "utf8");
 const backupScript = fileURLToPath(new URL("../scripts/backup-supabase.sh", import.meta.url));
@@ -29,6 +32,28 @@ test("post-login destination uses the stored profile role", () => {
   assert.equal(defaultDestination("teacher"), "/dashboard");
   assert.equal(defaultDestination("student"), "/");
   assert.equal(defaultDestination(undefined), "/");
+});
+
+test("Google OAuth preserves only an explicit safe destination and otherwise uses the role default", () => {
+  assert.equal(oauthRequestedNext(null), null);
+  assert.equal(oauthRequestedNext("/tests/123"), "/tests/123");
+  assert.equal(oauthRequestedNext("//evil.example"), null);
+  assert.equal(safeNext(oauthRequestedNext(null), defaultDestination("teacher")), "/dashboard");
+});
+
+test("post-login destination rejects protocol-relative and backslash-based external URLs", () => {
+  assert.equal(safeNext("/\\evil.example", "/dashboard"), "/dashboard");
+  assert.equal(safeNext("//evil.example/path", "/dashboard"), "/dashboard");
+  assert.equal(safeNext("https://evil.example", "/dashboard"), "/dashboard");
+  assert.equal(safeNext("/s/test?source=mail#start", "/dashboard"), "/s/test?source=mail#start");
+});
+
+test("a resubmitted share link only exposes a grade when the teacher enabled score reveal", () => {
+  const shareRoute = readFileSync(fileURLToPath(new URL("../app/api/share/[token]/route.ts", import.meta.url)), "utf8");
+  const studentPage = readFileSync(fileURLToPath(new URL("../app/s/[token]/page.tsx", import.meta.url)), "utf8");
+  assert.match(shareRoute, /select\("id,percentage"\)/);
+  assert.match(shareRoute, /percentage:\s*settings\.reveal_score\s*\?\s*prior\.percentage\s*:\s*null/);
+  assert.match(studentPage, /setPercentage\(result\.percentage \?\? null\)/);
 });
 
 test("generation quota allows a reserved request", async () => {
@@ -72,6 +97,20 @@ test("school migrations preserve attempt rows, add one-attempt enforcement, and 
   assert.match(manualReviewMigration, /alter column percentage drop not null/i);
   assert.match(summaryMigration, /security invoker/i);
   assert.match(summaryMigration, /grant execute on function public\.web_test_attempt_summary\(uuid\) to authenticated/i);
+});
+
+test("legacy lockdown covers every table declared by the Python app schema", () => {
+  const schemaTables = [...legacySchema.matchAll(/create table if not exists\s+([a-z_][a-z0-9_]*)/gi)]
+    .map(([, table]) => table);
+  const lockdownTables = new Set([...legacyLockdown.matchAll(/'([a-z_][a-z0-9_]*)'/g)]
+    .map(([, table]) => table));
+
+  assert.ok(schemaTables.length > 0, "legacy schema should declare tables");
+  for (const table of schemaTables) {
+    assert.ok(lockdownTables.has(table), `legacy table ${table} must be included in lockdown`);
+  }
+  assert.match(legacyLockdown, /enable row level security/i);
+  assert.match(legacyLockdown, /revoke all on table[\s\S]*from public, anon, authenticated/i);
 });
 
 test("generation quota is enforced inside the database with a fixed cap", () => {
