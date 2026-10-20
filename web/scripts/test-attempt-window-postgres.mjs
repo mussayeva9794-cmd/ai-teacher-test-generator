@@ -221,8 +221,10 @@ assert.equal(psqlSync(`select count(*) from public.web_attempts where test_id = 
 const grants = psqlSync(`select
   has_function_privilege('service_role', 'public.save_web_draft_if_open(uuid,uuid,uuid,jsonb)', 'execute')
   and not has_function_privilege('authenticated', 'public.save_web_draft_if_open(uuid,uuid,uuid,jsonb)', 'execute')
+  and not has_function_privilege('anon', 'public.save_web_draft_if_open(uuid,uuid,uuid,jsonb)', 'execute')
   and has_function_privilege('service_role', 'public.finalize_web_attempt(uuid,uuid,uuid,timestamptz,jsonb,jsonb,numeric,jsonb,jsonb,numeric,jsonb)', 'execute')
-  and not has_function_privilege('authenticated', 'public.finalize_web_attempt(uuid,uuid,uuid,timestamptz,jsonb,jsonb,numeric,jsonb,jsonb,numeric,jsonb)', 'execute');`)[0];
+  and not has_function_privilege('authenticated', 'public.finalize_web_attempt(uuid,uuid,uuid,timestamptz,jsonb,jsonb,numeric,jsonb,jsonb,numeric,jsonb)', 'execute')
+  and not has_function_privilege('anon', 'public.finalize_web_attempt(uuid,uuid,uuid,timestamptz,jsonb,jsonb,numeric,jsonb,jsonb,numeric,jsonb)', 'execute');`)[0];
 assert.equal(grants, "t", "only service_role should be allowed to execute the deadline RPCs");
 
 console.log("PostgreSQL attempt-window integration passed: deadlines, saved-draft finalization, duplicate-submit and autosave races, 25 concurrent students, and RPC grants.");
