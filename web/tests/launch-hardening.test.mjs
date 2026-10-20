@@ -271,6 +271,10 @@ test("backup is published only after every dump and its checksum succeed", () =>
   const mockDump = join(scratch, "pg_dump");
   const mockRestore = join(scratch, "pg_restore");
   writeFileSync(mockDump, `#!/bin/sh
+if [ "$1" = "--version" ]; then
+  printf 'pg_dump (PostgreSQL) 18.0\\n'
+  exit 0
+fi
 out=""
 while [ "$#" -gt 0 ]; do
   if [ "$1" = "--file" ]; then shift; out="$1"; fi
@@ -279,7 +283,7 @@ done
 if [ "${"$"}MOCK_FAIL" = "1" ]; then exit 2; fi
 printf 'test dump\\n' > "$out"
 `);
-  writeFileSync(mockRestore, "#!/bin/sh\nexit 0\n");
+  writeFileSync(mockRestore, "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then printf 'pg_restore (PostgreSQL) 18.0\\n'; exit 0; fi\nexit 0\n");
   chmodSync(mockDump, 0o700);
   chmodSync(mockRestore, 0o700);
   const env = { ...process.env, PATH: `${scratch}:${process.env.PATH}`, SUPABASE_DB_URL: "postgres://mock:mock@localhost:5432/postgres", MOCK_FAIL: "" };
