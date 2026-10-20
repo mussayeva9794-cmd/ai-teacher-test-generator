@@ -73,7 +73,7 @@ function parseJsonRow(rows) {
 const ids = Object.fromEntries(
   ["owner", "openTest", "openLink", "openStudent", "expiredSaveTest", "expiredSaveLink", "expiredSaveStudent",
     "expiredSubmitTest", "expiredSubmitLink", "expiredSubmitStudent", "raceTest", "raceLinkA", "raceLinkB", "raceStudent",
-    "saveRaceTest", "saveRaceLink", "saveRaceStudent"]
+    "saveRaceTest", "saveRaceLink", "saveRaceStudent", "classLoadTest", "classLoadLink"]
     .map((name) => [name, randomUUID()]),
 );
 
@@ -130,6 +130,11 @@ insertCase({
 });
 insertCase({ testId: ids.raceTest, linkIds: [ids.raceLinkA, ids.raceLinkB], studentId: ids.raceStudent });
 insertCase({ testId: ids.saveRaceTest, linkIds: [ids.saveRaceLink], studentId: ids.saveRaceStudent, settings: [{ timer_minutes: 10 }] });
+const classLoadStudents = Array.from({ length: 25 }, () => randomUUID());
+insertCase({ testId: ids.classLoadTest, linkIds: [ids.classLoadLink], studentId: classLoadStudents[0] });
+psqlSync(`insert into public.web_drafts (link_id, student_id, answers, started_at, updated_at) values ${classLoadStudents.slice(1).map((studentId) =>
+  `(${quote(ids.classLoadLink)}::uuid, ${quote(studentId)}::uuid, ${json({ q1: "saved" })}, now() - interval '1 minute', '2026-10-20 10:00:00+00')`,
+).join(",\n")};`);
 
 const openSaveStatus = psqlSync(`select public.save_web_draft_if_open(
   ${quote(ids.openLink)}::uuid, ${quote(ids.openTest)}::uuid, ${quote(ids.openStudent)}::uuid, ${json({ q1: "current" })}
@@ -204,6 +209,15 @@ if (concurrentStatuses.includes("draft_changed")) {
   assert.equal(parseJsonRow(retry).status, "submitted", "the route retry should finalize a fresh draft snapshot");
 }
 
+const classLoadResults = await Promise.all(classLoadStudents.map((studentId) =>
+  psqlAsync(`select pg_sleep(0.2); ${finalizeSql({
+    linkId: ids.classLoadLink, testId: ids.classLoadTest, studentId,
+    expectedAnswers: { q1: "saved" }, currentAnswers: { q1: "submitted" }, savedAnswers: { q1: "saved" },
+  })}`),
+));
+assert.deepEqual(classLoadResults.map(parseJsonRow).map((result) => result.status), Array(25).fill("submitted"));
+assert.equal(psqlSync(`select count(*) from public.web_attempts where test_id = ${quote(ids.classLoadTest)}::uuid;`)[0], "25");
+
 const grants = psqlSync(`select
   has_function_privilege('service_role', 'public.save_web_draft_if_open(uuid,uuid,uuid,jsonb)', 'execute')
   and not has_function_privilege('authenticated', 'public.save_web_draft_if_open(uuid,uuid,uuid,jsonb)', 'execute')
@@ -211,4 +225,4 @@ const grants = psqlSync(`select
   and not has_function_privilege('authenticated', 'public.finalize_web_attempt(uuid,uuid,uuid,timestamptz,jsonb,jsonb,numeric,jsonb,jsonb,numeric,jsonb)', 'execute');`)[0];
 assert.equal(grants, "t", "only service_role should be allowed to execute the deadline RPCs");
 
-console.log("PostgreSQL attempt-window integration passed: deadlines, saved-draft finalization, concurrent submissions, autosave race, and RPC grants.");
+console.log("PostgreSQL attempt-window integration passed: deadlines, saved-draft finalization, duplicate-submit and autosave races, 25 concurrent students, and RPC grants.");
