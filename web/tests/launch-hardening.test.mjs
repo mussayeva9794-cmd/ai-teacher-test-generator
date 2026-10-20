@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import { defaultDestination, signupOptions } from "../lib/signup.ts";
 import { oauthRequestedNext, safeNext } from "../lib/safe-next.ts";
 import { releaseGenerationQuota, reserveGeneration } from "../lib/generation-quota.ts";
+import { runRpcReadinessProbe, validateSupabaseRootUrl } from "../scripts/check-attempt-window-rpcs.mjs";
 
 const migration = readFileSync(fileURLToPath(new URL("../supabase_launch_hardening.sql", import.meta.url)), "utf8");
 const attemptConstraint = readFileSync(fileURLToPath(new URL("../supabase_attempts_unique_constraint.sql", import.meta.url)), "utf8");
@@ -79,6 +80,43 @@ test("generation quota denies exhausted requests and fails closed on database er
   assert.equal(await reserveGeneration({ rpc: async () => ({ data: false, error: null }) }), "limited");
   assert.equal(await reserveGeneration({ rpc: async () => ({ data: null, error: { code: "PGRST202" } }) }), "unavailable");
   assert.equal(await reserveGeneration({ rpc: async () => { throw new Error("network unavailable"); } }), "unavailable");
+});
+
+test("attempt-window RPC readiness probe rejects unsafe Supabase URLs", () => {
+  assert.equal(validateSupabaseRootUrl("https://project.supabase.co"), "https://project.supabase.co");
+  assert.equal(validateSupabaseRootUrl("https://project.supabase.co/"), "https://project.supabase.co");
+  assert.equal(validateSupabaseRootUrl("http://project.supabase.co"), null);
+  assert.equal(validateSupabaseRootUrl("https://project.supabase.co.evil.example"), null);
+  assert.equal(validateSupabaseRootUrl("https://user:password@project.supabase.co"), null);
+  assert.equal(validateSupabaseRootUrl("https://project.supabase.co/rest/v1"), null);
+});
+
+test("attempt-window RPC readiness probe sends only invalid null-argument calls and never logs the service key", async () => {
+  const requests = [];
+  const output = [];
+  const serviceKey = "test-service-key-must-not-be-logged";
+  const passed = await runRpcReadinessProbe({
+    supabaseUrl: "https://project.supabase.co",
+    serviceKey,
+    fetchImpl: async (url, options) => {
+      requests.push({ url, options });
+      return new Response(JSON.stringify(url.endsWith("save_web_draft_if_open") ? "invalid" : { status: "invalid" }), { status: 200 });
+    },
+    log: (message) => output.push(message),
+    errorLog: (message) => output.push(message),
+  });
+
+  assert.equal(passed, true);
+  assert.equal(requests.length, 2);
+  for (const { url, options } of requests) {
+    assert.match(url, /^https:\/\/project\.supabase\.co\/rest\/v1\/rpc\//);
+    assert.equal(options.method, "POST");
+    assert.equal(options.headers.apikey, serviceKey);
+    assert.equal(options.headers.authorization, `Bearer ${serviceKey}`);
+    assert.deepEqual(JSON.parse(options.body).p_link_id, null);
+  }
+  assert.equal(output.some((message) => message.includes(serviceKey)), false);
+  assert.equal(output.every((message) => message.includes("made no writes")), true);
 });
 
 test("role migration ignores self-reported roles and only grants student on signup", () => {
