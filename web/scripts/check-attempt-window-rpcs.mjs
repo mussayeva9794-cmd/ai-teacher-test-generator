@@ -1,13 +1,15 @@
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
-export function validateSupabaseRootUrl(configuredUrl) {
+export function validateSupabaseRootUrl(configuredUrl, expectedProjectRef) {
   try {
     const parsedUrl = new URL(configuredUrl?.trim() ?? "");
+    if (!/^[a-z0-9]{20}$/.test(expectedProjectRef ?? "")) return null;
     if (
       parsedUrl.protocol !== "https:" ||
-      !parsedUrl.hostname.endsWith(".supabase.co") ||
+      parsedUrl.hostname !== `${expectedProjectRef}.supabase.co` ||
       !["", "/"].includes(parsedUrl.pathname) ||
+      parsedUrl.port ||
       parsedUrl.search ||
       parsedUrl.hash ||
       parsedUrl.username ||
@@ -23,11 +25,18 @@ export function validateSupabaseRootUrl(configuredUrl) {
 
 export async function runRpcReadinessProbe({
   supabaseUrl,
+  expectedProjectRef,
   serviceKey,
   fetchImpl = fetch,
   log = console.log,
   errorLog = console.error,
 }) {
+  const targetUrl = validateSupabaseRootUrl(supabaseUrl, expectedProjectRef);
+  if (!targetUrl) {
+    errorLog("Refusing to send credentials: URL does not match the expected Supabase project ref.");
+    return false;
+  }
+
   const checks = [
     {
       name: "save_web_draft_if_open",
@@ -62,7 +71,7 @@ export async function runRpcReadinessProbe({
 
   for (const check of checks) {
     try {
-      const response = await fetchImpl(`${supabaseUrl}/rest/v1/rpc/${check.name}`, {
+      const response = await fetchImpl(`${targetUrl}/rest/v1/rpc/${check.name}`, {
         method: "POST",
         headers: {
           apikey: serviceKey,
@@ -100,19 +109,20 @@ export async function runRpcReadinessProbe({
 async function main() {
   const configuredUrl = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
   const serviceKey = process.env.SUPABASE_SECRET_KEY?.trim();
+  const expectedProjectRef = process.env.EXPECTED_SUPABASE_PROJECT_REF?.trim();
 
-  if (!configuredUrl || !serviceKey) {
-    console.error("Set NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SECRET_KEY privately.");
+  if (!configuredUrl || !serviceKey || !expectedProjectRef) {
+    console.error("Set NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SECRET_KEY, and EXPECTED_SUPABASE_PROJECT_REF privately.");
     return 1;
   }
 
-  const supabaseUrl = validateSupabaseRootUrl(configuredUrl);
+  const supabaseUrl = validateSupabaseRootUrl(configuredUrl, expectedProjectRef);
   if (!supabaseUrl) {
-    console.error("NEXT_PUBLIC_SUPABASE_URL must be the HTTPS root URL of a Supabase project.");
+    console.error("NEXT_PUBLIC_SUPABASE_URL must exactly match the HTTPS root URL for EXPECTED_SUPABASE_PROJECT_REF.");
     return 1;
   }
 
-  const passed = await runRpcReadinessProbe({ supabaseUrl, serviceKey });
+  const passed = await runRpcReadinessProbe({ supabaseUrl, expectedProjectRef, serviceKey });
   return passed ? 0 : 1;
 }
 

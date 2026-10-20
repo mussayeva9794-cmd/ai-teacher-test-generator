@@ -83,20 +83,26 @@ test("generation quota denies exhausted requests and fails closed on database er
 });
 
 test("attempt-window RPC readiness probe rejects unsafe Supabase URLs", () => {
-  assert.equal(validateSupabaseRootUrl("https://project.supabase.co"), "https://project.supabase.co");
-  assert.equal(validateSupabaseRootUrl("https://project.supabase.co/"), "https://project.supabase.co");
-  assert.equal(validateSupabaseRootUrl("http://project.supabase.co"), null);
-  assert.equal(validateSupabaseRootUrl("https://project.supabase.co.evil.example"), null);
-  assert.equal(validateSupabaseRootUrl("https://user:password@project.supabase.co"), null);
-  assert.equal(validateSupabaseRootUrl("https://project.supabase.co/rest/v1"), null);
+  const projectRef = "abcdefghijklmnopqrst";
+  assert.equal(validateSupabaseRootUrl(`https://${projectRef}.supabase.co`, projectRef), `https://${projectRef}.supabase.co`);
+  assert.equal(validateSupabaseRootUrl(`https://${projectRef}.supabase.co/`, projectRef), `https://${projectRef}.supabase.co`);
+  assert.equal(validateSupabaseRootUrl(`https://${projectRef}.supabase.co`, "zyxwvutsrqponmlkjihgf"), null);
+  assert.equal(validateSupabaseRootUrl(`https://${projectRef}.supabase.co:8443`, projectRef), null);
+  assert.equal(validateSupabaseRootUrl(`http://${projectRef}.supabase.co`, projectRef), null);
+  assert.equal(validateSupabaseRootUrl(`https://${projectRef}.supabase.co.evil.example`, projectRef), null);
+  assert.equal(validateSupabaseRootUrl(`https://user:password@${projectRef}.supabase.co`, projectRef), null);
+  assert.equal(validateSupabaseRootUrl(`https://${projectRef}.supabase.co/rest/v1`, projectRef), null);
+  assert.equal(validateSupabaseRootUrl(`https://${projectRef}.supabase.co`, undefined), null);
 });
 
 test("attempt-window RPC readiness probe sends only invalid null-argument calls and never logs the service key", async () => {
   const requests = [];
   const output = [];
   const serviceKey = "test-service-key-must-not-be-logged";
+  const projectRef = "abcdefghijklmnopqrst";
   const passed = await runRpcReadinessProbe({
-    supabaseUrl: "https://project.supabase.co",
+    supabaseUrl: `https://${projectRef}.supabase.co`,
+    expectedProjectRef: projectRef,
     serviceKey,
     fetchImpl: async (url, options) => {
       requests.push({ url, options });
@@ -109,14 +115,53 @@ test("attempt-window RPC readiness probe sends only invalid null-argument calls 
   assert.equal(passed, true);
   assert.equal(requests.length, 2);
   for (const { url, options } of requests) {
-    assert.match(url, /^https:\/\/project\.supabase\.co\/rest\/v1\/rpc\//);
+    assert.match(url, new RegExp(`^https://${projectRef}\\.supabase\\.co/rest/v1/rpc/`));
     assert.equal(options.method, "POST");
     assert.equal(options.headers.apikey, serviceKey);
     assert.equal(options.headers.authorization, `Bearer ${serviceKey}`);
-    assert.deepEqual(JSON.parse(options.body).p_link_id, null);
+    const args = JSON.parse(options.body);
+    assert.equal(args.p_link_id, null);
+    assert.equal(args.p_test_id, null);
+    assert.equal(args.p_student_id, null);
+    if (url.endsWith("save_web_draft_if_open")) {
+      assert.deepEqual(args, { p_link_id: null, p_test_id: null, p_student_id: null, p_answers: {} });
+    } else {
+      assert.deepEqual(args, {
+        p_link_id: null,
+        p_test_id: null,
+        p_student_id: null,
+        p_expected_draft_updated_at: null,
+        p_expected_draft_answers: null,
+        p_current_answers: null,
+        p_current_percentage: null,
+        p_current_result: null,
+        p_saved_answers: null,
+        p_saved_percentage: null,
+        p_saved_result: null,
+      });
+    }
   }
   assert.equal(output.some((message) => message.includes(serviceKey)), false);
   assert.equal(output.every((message) => message.includes("made no writes")), true);
+});
+
+test("attempt-window RPC readiness probe never sends the service key to a mismatched project", async () => {
+  let requested = false;
+  const errors = [];
+  const passed = await runRpcReadinessProbe({
+    supabaseUrl: "https://wrongprojectabcdefghijkl.supabase.co",
+    expectedProjectRef: "abcdefghijklmnopqrst",
+    serviceKey: "test-service-key-must-not-be-sent",
+    fetchImpl: async () => {
+      requested = true;
+      return new Response("invalid", { status: 200 });
+    },
+    errorLog: (message) => errors.push(message),
+  });
+
+  assert.equal(passed, false);
+  assert.equal(requested, false);
+  assert.equal(errors.some((message) => message.includes("test-service-key-must-not-be-sent")), false);
 });
 
 test("role migration ignores self-reported roles and only grants student on signup", () => {
