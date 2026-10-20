@@ -16,6 +16,7 @@ const productionAudit = readFileSync(fileURLToPath(new URL("../supabase_school_p
 const manualReviewMigration = readFileSync(fileURLToPath(new URL("../supabase_manual_review.sql", import.meta.url)), "utf8");
 const summaryMigration = readFileSync(fileURLToPath(new URL("../supabase_results_summary.sql", import.meta.url)), "utf8");
 const atomicAttemptWindowMigration = readFileSync(fileURLToPath(new URL("../supabase_attempt_window_atomic.sql", import.meta.url)), "utf8");
+const schoolLaunchGuide = readFileSync(fileURLToPath(new URL("../docs/school-launch.md", import.meta.url)), "utf8");
 const baseSchema = readFileSync(fileURLToPath(new URL("../supabase_v2.sql", import.meta.url)), "utf8");
 const legacySchema = readFileSync(fileURLToPath(new URL("../../supabase_schema.sql", import.meta.url)), "utf8");
 const legacyLockdown = readFileSync(fileURLToPath(new URL("../supabase_legacy_public_tables_lockdown.sql", import.meta.url)), "utf8");
@@ -209,6 +210,13 @@ test("attempt-window persistence is atomic and its RPCs are service-role only", 
   assert.match(submitRoute, /admin\.rpc\("finalize_web_attempt"/);
   assert.match(shareRoute, /admin\.rpc\("start_web_draft_if_open"/);
   assert.doesNotMatch(submitRoute, /from\("web_attempts"\)\.insert/);
+});
+
+test("attempt-window rollback guidance keeps RPCs used by the parent release", () => {
+  assert.match(atomicAttemptWindowMigration, /keep save_web_draft_if_open and[\s\S]*?finalize_web_attempt/i);
+  assert.match(atomicAttemptWindowMigration, /drop all three only after[\s\S]*?no active application version calls/i);
+  assert.match(schoolLaunchGuide, /immediate parent release still calls `save_web_draft_if_open` and `finalize_web_attempt`/i);
+  assert.match(schoolLaunchGuide, /drop only `start_web_draft_if_open`/i);
 });
 
 test("legacy lockdown covers every table declared by the Python app schema", () => {

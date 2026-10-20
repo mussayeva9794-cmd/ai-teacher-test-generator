@@ -1,7 +1,10 @@
 -- Apply to the staging project first, then the matching application release.
 -- These service-only RPCs make the deadline/timer decision and persistence a
 -- single database operation. They never remove or rewrite existing attempts.
--- Rollback: redeploy the prior application, then drop these three additive functions.
+-- Rollback: redeploy the prior application first. Keep save_web_draft_if_open and
+-- finalize_web_attempt while that app still calls them. A rollback to the immediate
+-- parent release may drop only start_web_draft_if_open; drop all three only after
+-- confirming no active application version calls any of them.
 
 begin;
 
