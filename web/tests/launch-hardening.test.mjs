@@ -14,10 +14,13 @@ const attemptConstraint = readFileSync(fileURLToPath(new URL("../supabase_attemp
 const productionAudit = readFileSync(fileURLToPath(new URL("../supabase_school_production_audit.sql", import.meta.url)), "utf8");
 const manualReviewMigration = readFileSync(fileURLToPath(new URL("../supabase_manual_review.sql", import.meta.url)), "utf8");
 const summaryMigration = readFileSync(fileURLToPath(new URL("../supabase_results_summary.sql", import.meta.url)), "utf8");
+const atomicAttemptWindowMigration = readFileSync(fileURLToPath(new URL("../supabase_attempt_window_atomic.sql", import.meta.url)), "utf8");
 const baseSchema = readFileSync(fileURLToPath(new URL("../supabase_v2.sql", import.meta.url)), "utf8");
 const legacySchema = readFileSync(fileURLToPath(new URL("../../supabase_schema.sql", import.meta.url)), "utf8");
 const legacyLockdown = readFileSync(fileURLToPath(new URL("../supabase_legacy_public_tables_lockdown.sql", import.meta.url)), "utf8");
 const generateRoute = readFileSync(fileURLToPath(new URL("../app/api/generate/route.ts", import.meta.url)), "utf8");
+const draftRoute = readFileSync(fileURLToPath(new URL("../app/api/share/[token]/draft/route.ts", import.meta.url)), "utf8");
+const submitRoute = readFileSync(fileURLToPath(new URL("../app/api/share/[token]/submit/route.ts", import.meta.url)), "utf8");
 const groqClient = readFileSync(fileURLToPath(new URL("../lib/groq.ts", import.meta.url)), "utf8");
 const backupScript = fileURLToPath(new URL("../scripts/backup-supabase.sh", import.meta.url));
 const healthWorkflow = readFileSync(fileURLToPath(new URL("../../.github/workflows/production-health.yml", import.meta.url)), "utf8");
@@ -97,6 +100,25 @@ test("school migrations preserve attempt rows, add one-attempt enforcement, and 
   assert.match(manualReviewMigration, /alter column percentage drop not null/i);
   assert.match(summaryMigration, /security invoker/i);
   assert.match(summaryMigration, /grant execute on function public\.web_test_attempt_summary\(uuid\) to authenticated/i);
+});
+
+test("attempt-window persistence is atomic and its RPCs are service-role only", () => {
+  assert.match(atomicAttemptWindowMigration, /create or replace function public\.save_web_draft_if_open/i);
+  assert.match(atomicAttemptWindowMigration, /clock_timestamp\(\)\s*<\s*v_deadline/i);
+  assert.match(atomicAttemptWindowMigration, /started_at\s*\+\s*make_interval\(mins\s*=>\s*v_timer\)\s*>\s*clock_timestamp\(\)/i);
+  assert.match(atomicAttemptWindowMigration, /create or replace function public\.finalize_web_attempt/i);
+  assert.match(atomicAttemptWindowMigration, /for update of l, t, d/i);
+  assert.match(atomicAttemptWindowMigration, /v_now\s*:=\s*clock_timestamp\(\)/i);
+  assert.equal((atomicAttemptWindowMigration.match(/perform pg_advisory_xact_lock\(hashtextextended\(/g) || []).length, 2);
+  assert.match(atomicAttemptWindowMigration, /on conflict\s*\(test_id, student_id\)\s*do nothing/i);
+  assert.match(atomicAttemptWindowMigration, /revoke all on function public\.save_web_draft_if_open[\s\S]*?from public, anon, authenticated/i);
+  assert.match(atomicAttemptWindowMigration, /grant execute on function public\.save_web_draft_if_open[\s\S]*?to service_role/i);
+  assert.match(atomicAttemptWindowMigration, /revoke all on function public\.finalize_web_attempt[\s\S]*?from public, anon, authenticated/i);
+  assert.match(atomicAttemptWindowMigration, /grant execute on function public\.finalize_web_attempt[\s\S]*?to service_role/i);
+  assert.match(draftRoute, /admin\.rpc\("save_web_draft_if_open"/);
+  assert.doesNotMatch(draftRoute, /from\("web_drafts"\)\.update/);
+  assert.match(submitRoute, /admin\.rpc\("finalize_web_attempt"/);
+  assert.doesNotMatch(submitRoute, /from\("web_attempts"\)\.insert/);
 });
 
 test("legacy lockdown covers every table declared by the Python app schema", () => {
