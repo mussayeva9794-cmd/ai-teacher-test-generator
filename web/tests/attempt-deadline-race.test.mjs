@@ -5,7 +5,8 @@ import { registerHooks } from "node:module";
 const modules = new Map([
   ["@/lib/auth", "export const actorFromRequest = async () => ({ id: 'student-1', role: 'student' }); export const jsonError = (message, status = 400) => Response.json({ error: message }, { status });"],
   ["@/lib/share", "export const shareContext = async () => globalThis.deadlineMocks.context;"],
-  ["@/lib/assessment", "export const personalizedVariant = variant => variant; export const grade = (_variant, answers) => { if (globalThis.deadlineMocks.expireDuringGrade) globalThis.deadlineMocks.expired = true; return { percentage: answers.q1 === 'saved' ? 100 : 0 }; };"],
+  ["@/lib/assessment", "export const personalizedVariant = variant => variant; export const studentVariant = variant => variant; export const grade = (_variant, answers) => { if (globalThis.deadlineMocks.expireDuringGrade) globalThis.deadlineMocks.expired = true; return { percentage: answers.q1 === 'saved' ? 100 : 0 }; };"],
+  ["@/lib/attempt-window", "export const attemptWindowExpired = () => false;"],
 ]);
 
 registerHooks({
@@ -17,6 +18,7 @@ registerHooks({
 
 const { PUT } = await import("../app/api/share/[token]/draft/route.ts");
 const { POST } = await import("../app/api/share/[token]/submit/route.ts");
+const { GET } = await import("../app/api/share/[token]/route.ts");
 const params = { params: Promise.resolve({ token: "share-token" }) };
 
 function setup() {
@@ -125,4 +127,58 @@ test("finalization reloads and regrades when an autosave wins the draft lock", a
   assert.equal(finalizations.length, 2);
   assert.equal(finalizations[1].args.p_expected_draft_updated_at, "2026-10-08T10:02:00Z");
   assert.deepEqual(finalizations[1].args.p_saved_answers, { q1: "newly-saved" });
+});
+
+test("first open delegates draft creation and deadline enforcement to one RPC", async () => {
+  const writes = [];
+  const startedDraft = { started_at: "2026-10-08T10:00:00Z", updated_at: "2026-10-08T10:00:00Z", answers: {} };
+  let draft = null;
+  const admin = {
+    from(table) {
+      const query = {
+        eq() { return this; },
+        maybeSingle: async () => ({ data: table === "web_drafts" ? draft : null, error: null }),
+        single: async () => ({ data: draft, error: null }),
+      };
+      return {
+        select() { return query; },
+        insert(payload) { writes.push({ kind: "insert", payload }); return Promise.resolve({ error: null }); },
+      };
+    },
+    async rpc(name, args) {
+      writes.push({ kind: "rpc", name, args });
+      if (name === "start_web_draft_if_open") draft = startedDraft;
+      return { data: "started", error: null };
+    },
+  };
+  globalThis.deadlineMocks.context = {
+    admin, link: { id: "link-1", variant_name: "A" }, test: { id: "test-1", title: "Test", topic: "Topic" },
+    settings: { deadline_at: null, timer_minutes: 0, randomize: false, reveal_score: false },
+    variant: { questions: [{ id: "q1" }] },
+  };
+
+  const response = await GET({}, params);
+  assert.equal(response.status, 200);
+  assert.equal(writes.filter((write) => write.name === "start_web_draft_if_open").length, 1);
+  assert.equal(writes.some((write) => write.kind === "insert"), false);
+});
+
+test("first open returns the cutoff error when the atomic start RPC says expired", async () => {
+  const writes = [];
+  const admin = {
+    from() {
+      const query = { eq() { return this; }, maybeSingle: async () => ({ data: null, error: null }) };
+      return { select() { return query; }, insert() { writes.push("insert"); return Promise.resolve({ error: null }); } };
+    },
+    async rpc(name) { writes.push(name); return { data: "expired", error: null }; },
+  };
+  globalThis.deadlineMocks.context = {
+    admin, link: { id: "link-1", variant_name: "A" }, test: { id: "test-1", title: "Test", topic: "Topic" },
+    settings: { deadline_at: "2000-01-01T00:00:00Z", timer_minutes: 0, randomize: false, reveal_score: false },
+    variant: { questions: [{ id: "q1" }] },
+  };
+
+  const response = await GET({}, params);
+  assert.equal(response.status, 403);
+  assert.deepEqual(writes, ["start_web_draft_if_open"]);
 });

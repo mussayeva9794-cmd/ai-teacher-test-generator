@@ -1,9 +1,83 @@
 -- Apply to the staging project first, then the matching application release.
 -- These service-only RPCs make the deadline/timer decision and persistence a
 -- single database operation. They never remove or rewrite existing attempts.
--- Rollback: redeploy the prior application, then drop these two additive functions.
+-- Rollback: redeploy the prior application, then drop these three additive functions.
 
 begin;
+
+create or replace function public.start_web_draft_if_open(
+  p_link_id uuid,
+  p_test_id uuid,
+  p_student_id uuid
+)
+returns text
+language plpgsql
+security definer
+set search_path = ''
+as $function$
+declare
+  v_settings jsonb;
+  v_deadline timestamptz;
+  v_test_status text;
+  v_started_at timestamptz;
+begin
+  if p_link_id is null or p_test_id is null or p_student_id is null then
+    return 'invalid';
+  end if;
+
+  perform pg_advisory_xact_lock(hashtextextended(p_test_id::text || ':' || p_student_id::text, 0));
+
+  select l.settings, t.status
+    into v_settings, v_test_status
+  from public.web_share_links as l
+  join public.web_tests as t on t.id = l.test_id and t.owner_id = l.owner_id
+  where l.id = p_link_id and l.test_id = p_test_id and l.is_active
+  for update of l, t;
+
+  if not found or v_test_status <> 'published' then
+    return 'unavailable';
+  end if;
+  if exists (
+    select 1 from public.web_attempts as a
+    where a.test_id = p_test_id and a.student_id = p_student_id
+  ) then
+    return 'submitted';
+  end if;
+  if exists (
+    select 1 from public.web_drafts as d
+    where d.link_id = p_link_id and d.student_id = p_student_id
+  ) then
+    return 'existing';
+  end if;
+
+  begin
+    v_deadline := nullif(v_settings->>'deadline_at', '')::timestamptz;
+  exception when others then
+    return 'invalid_settings';
+  end;
+  if v_deadline is not null and clock_timestamp() >= v_deadline then
+    return 'expired';
+  end if;
+
+  -- Repeat the cutoff check in the same statement that creates the draft.
+  insert into public.web_drafts (link_id, student_id, answers, started_at, updated_at)
+  select p_link_id, p_student_id, '{}'::jsonb, clock_timestamp(), clock_timestamp()
+  where v_deadline is null or clock_timestamp() < v_deadline
+  on conflict (link_id, student_id) do nothing
+  returning started_at into v_started_at;
+
+  if v_started_at is not null then
+    return 'started';
+  end if;
+  if exists (
+    select 1 from public.web_drafts as d
+    where d.link_id = p_link_id and d.student_id = p_student_id
+  ) then
+    return 'existing';
+  end if;
+  return 'expired';
+end;
+$function$;
 
 create or replace function public.save_web_draft_if_open(
   p_link_id uuid,
@@ -239,6 +313,11 @@ $function$;
 revoke all on function public.save_web_draft_if_open(uuid, uuid, uuid, jsonb)
   from public, anon, authenticated;
 grant execute on function public.save_web_draft_if_open(uuid, uuid, uuid, jsonb)
+  to service_role;
+
+revoke all on function public.start_web_draft_if_open(uuid, uuid, uuid)
+  from public, anon, authenticated;
+grant execute on function public.start_web_draft_if_open(uuid, uuid, uuid)
   to service_role;
 
 revoke all on function public.finalize_web_attempt(uuid, uuid, uuid, timestamptz, jsonb, jsonb, numeric, jsonb, jsonb, numeric, jsonb)

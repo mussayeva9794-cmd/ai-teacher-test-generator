@@ -21,6 +21,7 @@ const legacySchema = readFileSync(fileURLToPath(new URL("../../supabase_schema.s
 const legacyLockdown = readFileSync(fileURLToPath(new URL("../supabase_legacy_public_tables_lockdown.sql", import.meta.url)), "utf8");
 const generateRoute = readFileSync(fileURLToPath(new URL("../app/api/generate/route.ts", import.meta.url)), "utf8");
 const draftRoute = readFileSync(fileURLToPath(new URL("../app/api/share/[token]/draft/route.ts", import.meta.url)), "utf8");
+const shareRoute = readFileSync(fileURLToPath(new URL("../app/api/share/[token]/route.ts", import.meta.url)), "utf8");
 const submitRoute = readFileSync(fileURLToPath(new URL("../app/api/share/[token]/submit/route.ts", import.meta.url)), "utf8");
 const groqClient = readFileSync(fileURLToPath(new URL("../lib/groq.ts", import.meta.url)), "utf8");
 const backupScript = fileURLToPath(new URL("../scripts/backup-supabase.sh", import.meta.url));
@@ -106,14 +107,14 @@ test("attempt-window RPC readiness probe sends only invalid null-argument calls 
     serviceKey,
     fetchImpl: async (url, options) => {
       requests.push({ url, options });
-      return new Response(JSON.stringify(url.endsWith("save_web_draft_if_open") ? "invalid" : { status: "invalid" }), { status: 200 });
+      return new Response(JSON.stringify(url.endsWith("finalize_web_attempt") ? { status: "invalid" } : "invalid"), { status: 200 });
     },
     log: (message) => output.push(message),
     errorLog: (message) => output.push(message),
   });
 
   assert.equal(passed, true);
-  assert.equal(requests.length, 2);
+  assert.equal(requests.length, 3);
   for (const { url, options } of requests) {
     assert.match(url, new RegExp(`^https://${projectRef}\\.supabase\\.co/rest/v1/rpc/`));
     assert.equal(options.method, "POST");
@@ -123,7 +124,9 @@ test("attempt-window RPC readiness probe sends only invalid null-argument calls 
     assert.equal(args.p_link_id, null);
     assert.equal(args.p_test_id, null);
     assert.equal(args.p_student_id, null);
-    if (url.endsWith("save_web_draft_if_open")) {
+    if (url.endsWith("start_web_draft_if_open")) {
+      assert.deepEqual(args, { p_link_id: null, p_test_id: null, p_student_id: null });
+    } else if (url.endsWith("save_web_draft_if_open")) {
       assert.deepEqual(args, { p_link_id: null, p_test_id: null, p_student_id: null, p_answers: {} });
     } else {
       assert.deepEqual(args, {
@@ -186,21 +189,25 @@ test("school migrations preserve attempt rows, add one-attempt enforcement, and 
 });
 
 test("attempt-window persistence is atomic and its RPCs are service-role only", () => {
+  assert.match(atomicAttemptWindowMigration, /create or replace function public\.start_web_draft_if_open/i);
   assert.match(atomicAttemptWindowMigration, /create or replace function public\.save_web_draft_if_open/i);
   assert.match(atomicAttemptWindowMigration, /clock_timestamp\(\)\s*<\s*v_deadline/i);
   assert.match(atomicAttemptWindowMigration, /started_at\s*\+\s*make_interval\(mins\s*=>\s*v_timer\)\s*>\s*clock_timestamp\(\)/i);
   assert.match(atomicAttemptWindowMigration, /create or replace function public\.finalize_web_attempt/i);
   assert.match(atomicAttemptWindowMigration, /for update of l, t, d/i);
   assert.match(atomicAttemptWindowMigration, /v_now\s*:=\s*clock_timestamp\(\)/i);
-  assert.equal((atomicAttemptWindowMigration.match(/perform pg_advisory_xact_lock\(hashtextextended\(/g) || []).length, 2);
+  assert.equal((atomicAttemptWindowMigration.match(/perform pg_advisory_xact_lock\(hashtextextended\(/g) || []).length, 3);
   assert.match(atomicAttemptWindowMigration, /on conflict\s*\(test_id, student_id\)\s*do nothing/i);
   assert.match(atomicAttemptWindowMigration, /revoke all on function public\.save_web_draft_if_open[\s\S]*?from public, anon, authenticated/i);
   assert.match(atomicAttemptWindowMigration, /grant execute on function public\.save_web_draft_if_open[\s\S]*?to service_role/i);
+  assert.match(atomicAttemptWindowMigration, /revoke all on function public\.start_web_draft_if_open[\s\S]*?from public, anon, authenticated/i);
+  assert.match(atomicAttemptWindowMigration, /grant execute on function public\.start_web_draft_if_open[\s\S]*?to service_role/i);
   assert.match(atomicAttemptWindowMigration, /revoke all on function public\.finalize_web_attempt[\s\S]*?from public, anon, authenticated/i);
   assert.match(atomicAttemptWindowMigration, /grant execute on function public\.finalize_web_attempt[\s\S]*?to service_role/i);
   assert.match(draftRoute, /admin\.rpc\("save_web_draft_if_open"/);
   assert.doesNotMatch(draftRoute, /from\("web_drafts"\)\.update/);
   assert.match(submitRoute, /admin\.rpc\("finalize_web_attempt"/);
+  assert.match(shareRoute, /admin\.rpc\("start_web_draft_if_open"/);
   assert.doesNotMatch(submitRoute, /from\("web_attempts"\)\.insert/);
 });
 

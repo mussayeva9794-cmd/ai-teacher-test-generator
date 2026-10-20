@@ -39,6 +39,15 @@ export async function runRpcReadinessProbe({
 
   const checks = [
     {
+      name: "start_web_draft_if_open",
+      args: {
+        p_link_id: null,
+        p_test_id: null,
+        p_student_id: null,
+      },
+      accepts: (result) => result === "invalid",
+    },
+    {
       name: "save_web_draft_if_open",
       args: {
         p_link_id: null,

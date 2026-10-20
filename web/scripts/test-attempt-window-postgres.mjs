@@ -71,7 +71,7 @@ function parseJsonRow(rows) {
 }
 
 const ids = Object.fromEntries(
-  ["owner", "openTest", "openLink", "openStudent", "expiredSaveTest", "expiredSaveLink", "expiredSaveStudent",
+  ["owner", "openTest", "openLink", "openStudent", "startTest", "startLink", "startStudent", "startRaceTest", "startRaceLink", "startRaceStudent", "startExpiredTest", "startExpiredLink", "startExpiredStudent", "expiredSaveTest", "expiredSaveLink", "expiredSaveStudent",
     "expiredSubmitTest", "expiredSubmitLink", "expiredSubmitStudent", "raceTest", "raceLinkA", "raceLinkB", "raceStudent",
     "saveRaceTest", "saveRaceLink", "saveRaceStudent", "classLoadTest", "classLoadLink",
     "manualReviewTest", "manualReviewLink", "manualReviewStudent", "expiredReviewTest", "expiredReviewLink", "expiredReviewStudent"]
@@ -120,7 +120,18 @@ const insertCase = ({ testId, linkIds, studentId, settings = [{ timer_minutes: 0
   `);
 };
 
+const insertStartCase = ({ testId, linkId, settings }) => {
+  psqlSync(`
+    insert into public.web_tests (id, owner_id, status) values (${quote(testId)}::uuid, ${quote(ids.owner)}::uuid, 'published');
+    insert into public.web_share_links (id, test_id, owner_id, variant_name, settings, is_active)
+    values (${quote(linkId)}::uuid, ${quote(testId)}::uuid, ${quote(ids.owner)}::uuid, 'A', ${json(settings)}, true);
+  `);
+};
+
 insertCase({ testId: ids.openTest, linkIds: [ids.openLink], studentId: ids.openStudent, settings: [{ timer_minutes: 10 }] });
+insertStartCase({ testId: ids.startTest, linkId: ids.startLink, settings: { deadline_at: "2099-01-01T00:00:00Z", timer_minutes: 0 } });
+insertStartCase({ testId: ids.startRaceTest, linkId: ids.startRaceLink, settings: { timer_minutes: 0 } });
+insertStartCase({ testId: ids.startExpiredTest, linkId: ids.startExpiredLink, settings: { deadline_at: "2000-01-01T00:00:00Z", timer_minutes: 0 } });
 insertCase({
   testId: ids.expiredSaveTest, linkIds: [ids.expiredSaveLink], studentId: ids.expiredSaveStudent,
   settings: [{ deadline_at: "2000-01-01T00:00:00Z", timer_minutes: 0 }],
@@ -141,6 +152,37 @@ insertCase({
 psqlSync(`insert into public.web_drafts (link_id, student_id, answers, started_at, updated_at) values ${classLoadStudents.slice(1).map((studentId) =>
   `(${quote(ids.classLoadLink)}::uuid, ${quote(studentId)}::uuid, ${json({ q1: "saved" })}, now() - interval '1 minute', '2026-10-20 10:00:00+00')`,
 ).join(",\n")};`);
+
+const startedStatus = psqlSync(`select public.start_web_draft_if_open(
+  ${quote(ids.startLink)}::uuid, ${quote(ids.startTest)}::uuid, ${quote(ids.startStudent)}::uuid
+);`)[0];
+assert.equal(startedStatus, "started", "a student should start before the database deadline");
+assert.equal(psqlSync(`select count(*) from public.web_drafts where link_id = ${quote(ids.startLink)}::uuid and student_id = ${quote(ids.startStudent)}::uuid;`)[0], "1");
+
+const expiredStartStatus = psqlSync(`select public.start_web_draft_if_open(
+  ${quote(ids.startExpiredLink)}::uuid, ${quote(ids.startExpiredTest)}::uuid, ${quote(ids.startExpiredStudent)}::uuid
+);`)[0];
+assert.equal(expiredStartStatus, "expired", "a new draft must not be created after the database deadline");
+assert.equal(psqlSync(`select count(*) from public.web_drafts where link_id = ${quote(ids.startExpiredLink)}::uuid;`)[0], "0");
+
+assert.equal(psqlSync(`select public.start_web_draft_if_open(
+  ${quote(ids.expiredSaveLink)}::uuid, ${quote(ids.expiredSaveTest)}::uuid, ${quote(ids.expiredSaveStudent)}::uuid
+);`)[0], "existing", "a draft started before the deadline remains resumable afterward");
+
+const firstStartRace = await Promise.all([1, 2].map(() =>
+  psqlAsync(`select public.start_web_draft_if_open(
+    ${quote(ids.startRaceLink)}::uuid, ${quote(ids.startRaceTest)}::uuid, ${quote(ids.startRaceStudent)}::uuid
+  );`),
+));
+assert.deepEqual(firstStartRace.map((rows) => rows[0]).sort(), ["existing", "started"], "concurrent first opens create one draft");
+assert.equal(psqlSync(`select count(*) from public.web_drafts where link_id = ${quote(ids.startRaceLink)}::uuid and student_id = ${quote(ids.startRaceStudent)}::uuid;`)[0], "1");
+
+const duplicateStartResults = await Promise.all([1, 2].map(() =>
+  psqlAsync(`select public.start_web_draft_if_open(
+    ${quote(ids.startLink)}::uuid, ${quote(ids.startTest)}::uuid, ${quote(ids.startStudent)}::uuid
+  );`),
+));
+assert.deepEqual(duplicateStartResults.map((rows) => rows[0]).sort(), ["existing", "existing"], "repeat opens should reuse the same draft");
 
 const openSaveStatus = psqlSync(`select public.save_web_draft_if_open(
   ${quote(ids.openLink)}::uuid, ${quote(ids.openTest)}::uuid, ${quote(ids.openStudent)}::uuid, ${json({ q1: "current" })}
@@ -176,6 +218,9 @@ assert.equal(expiredSubmit.percentage, 80);
 assert.deepEqual(parseJsonRow(psqlSync(`select jsonb_build_object('answers', answers, 'percentage', percentage)::text from public.web_attempts where test_id = ${quote(ids.expiredSubmitTest)}::uuid;`)), {
   answers: { q1: "saved" }, percentage: 80,
 });
+assert.equal(psqlSync(`select public.start_web_draft_if_open(
+  ${quote(ids.expiredSubmitLink)}::uuid, ${quote(ids.expiredSubmitTest)}::uuid, ${quote(ids.expiredSubmitStudent)}::uuid
+);`)[0], "submitted", "a finalized test must not start again");
 
 const pendingReviewResult = {
   percentage: null,
@@ -253,6 +298,10 @@ assert.deepEqual(classLoadResults.map(parseJsonRow).map((result) => result.statu
 assert.equal(psqlSync(`select count(*) from public.web_attempts where test_id = ${quote(ids.classLoadTest)}::uuid;`)[0], "25");
 
 const grants = psqlSync(`select
+  has_function_privilege('service_role', 'public.start_web_draft_if_open(uuid,uuid,uuid)', 'execute')
+  and not has_function_privilege('authenticated', 'public.start_web_draft_if_open(uuid,uuid,uuid)', 'execute')
+  and not has_function_privilege('anon', 'public.start_web_draft_if_open(uuid,uuid,uuid)', 'execute')
+  and
   has_function_privilege('service_role', 'public.save_web_draft_if_open(uuid,uuid,uuid,jsonb)', 'execute')
   and not has_function_privilege('authenticated', 'public.save_web_draft_if_open(uuid,uuid,uuid,jsonb)', 'execute')
   and not has_function_privilege('anon', 'public.save_web_draft_if_open(uuid,uuid,uuid,jsonb)', 'execute')
@@ -261,4 +310,4 @@ const grants = psqlSync(`select
   and not has_function_privilege('anon', 'public.finalize_web_attempt(uuid,uuid,uuid,timestamptz,jsonb,jsonb,numeric,jsonb,jsonb,numeric,jsonb)', 'execute');`)[0];
 assert.equal(grants, "t", "only service_role should be allowed to execute the deadline RPCs");
 
-console.log("PostgreSQL attempt-window integration passed: deadlines, saved-draft finalization, manual-review submissions, duplicate-submit and autosave races, 25 concurrent students, and RPC grants.");
+console.log("PostgreSQL attempt-window integration passed: atomic starts and deadline checks, saved-draft finalization, manual-review submissions, duplicate-submit and autosave races, 25 concurrent students, and RPC grants.");
