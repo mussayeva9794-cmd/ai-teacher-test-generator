@@ -72,4 +72,4 @@ Use at least two teacher accounts and two student accounts, plus an unregistered
 
 Record the date, deployment ID and evidence for each result. This checklist is not a claim that those live scenarios have already passed.
 
-The GitHub `Web CI` workflow runs dependency audit, unit tests, typecheck, production build and unauthenticated Playwright smoke tests. These checks do not authenticate as a real teacher/student or exercise live Supabase/Groq. A full multi-account acceptance run still requires a staging Supabase project and dedicated disposable test accounts; do not point concurrency or destructive tests at school production.
+The GitHub `Web CI` workflow runs dependency audit, unit tests, the deadline RPC integration suite against an isolated ephemeral PostgreSQL service, typecheck, production build and unauthenticated Playwright smoke tests. These checks do not authenticate as a real teacher/student or exercise live Supabase/Groq. A full multi-account acceptance run still requires a staging Supabase project and dedicated disposable test accounts; do not point concurrency or destructive tests at school production.

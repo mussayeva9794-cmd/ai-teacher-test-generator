@@ -24,6 +24,20 @@ jobs:
     name: Test, audit, build, and smoke test
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: ai_teacher_attempt_window_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d ai_teacher_attempt_window_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     defaults:
       run:
         working-directory: web
@@ -43,6 +57,14 @@ jobs:
 
       - name: Run unit tests
         run: npm test
+
+      - name: Install PostgreSQL client
+        run: sudo apt-get update && sudo apt-get install --yes postgresql-client
+
+      - name: Test attempt deadline RPCs against PostgreSQL
+        run: npm run test:attempt-window:db
+        env:
+          ATTEMPT_WINDOW_TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/ai_teacher_attempt_window_test
 
       - name: Typecheck
         run: npm run typecheck
