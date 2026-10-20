@@ -17,6 +17,7 @@ const manualReviewMigration = readFileSync(fileURLToPath(new URL("../supabase_ma
 const summaryMigration = readFileSync(fileURLToPath(new URL("../supabase_results_summary.sql", import.meta.url)), "utf8");
 const atomicAttemptWindowMigration = readFileSync(fileURLToPath(new URL("../supabase_attempt_window_atomic.sql", import.meta.url)), "utf8");
 const schoolLaunchGuide = readFileSync(fileURLToPath(new URL("../docs/school-launch.md", import.meta.url)), "utf8");
+const backupScriptSource = readFileSync(fileURLToPath(new URL("../scripts/backup-supabase.sh", import.meta.url)), "utf8");
 const baseSchema = readFileSync(fileURLToPath(new URL("../supabase_v2.sql", import.meta.url)), "utf8");
 const legacySchema = readFileSync(fileURLToPath(new URL("../../supabase_schema.sql", import.meta.url)), "utf8");
 const legacyLockdown = readFileSync(fileURLToPath(new URL("../supabase_legacy_public_tables_lockdown.sql", import.meta.url)), "utf8");
@@ -308,4 +309,9 @@ printf 'test dump\\n' > "$out"
   } finally {
     rmSync(scratch, { recursive: true, force: true });
   }
+});
+
+test("backup helper prompts interactively without echoing the database URI", () => {
+  assert.match(backupScriptSource, /read -r -s -p .*Session Pooler URI/);
+  assert.match(backupScriptSource, /run this script in an interactive terminal/);
 });

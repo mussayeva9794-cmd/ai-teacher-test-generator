@@ -3,8 +3,18 @@ set -euo pipefail
 umask 077
 
 if [[ -z "${SUPABASE_DB_URL:-}" ]]; then
-  printf 'Set SUPABASE_DB_URL privately before running this script.\n' >&2
-  exit 1
+  if [[ -t 0 ]]; then
+    read -r -s -p "Paste Supabase Session Pooler URI (input hidden): " SUPABASE_DB_URL
+    printf '\n'
+    if [[ -z "$SUPABASE_DB_URL" ]]; then
+      printf 'A database URI is required.\n' >&2
+      exit 1
+    fi
+    export SUPABASE_DB_URL
+  else
+    printf 'Set SUPABASE_DB_URL privately or run this script in an interactive terminal.\n' >&2
+    exit 1
+  fi
 fi
 if ! command -v pg_dump >/dev/null 2>&1 || ! command -v pg_restore >/dev/null 2>&1; then
   printf 'PostgreSQL client tools (pg_dump and pg_restore) are required.\n' >&2
