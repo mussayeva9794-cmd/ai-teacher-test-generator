@@ -8,16 +8,23 @@ import { fileURLToPath } from "node:url";
 import { defaultDestination, signupOptions } from "../lib/signup.ts";
 import { oauthRequestedNext, safeNext } from "../lib/safe-next.ts";
 import { releaseGenerationQuota, reserveGeneration } from "../lib/generation-quota.ts";
+import { runRpcReadinessProbe, validateSupabaseRootUrl } from "../scripts/check-attempt-window-rpcs.mjs";
 
 const migration = readFileSync(fileURLToPath(new URL("../supabase_launch_hardening.sql", import.meta.url)), "utf8");
 const attemptConstraint = readFileSync(fileURLToPath(new URL("../supabase_attempts_unique_constraint.sql", import.meta.url)), "utf8");
 const productionAudit = readFileSync(fileURLToPath(new URL("../supabase_school_production_audit.sql", import.meta.url)), "utf8");
 const manualReviewMigration = readFileSync(fileURLToPath(new URL("../supabase_manual_review.sql", import.meta.url)), "utf8");
 const summaryMigration = readFileSync(fileURLToPath(new URL("../supabase_results_summary.sql", import.meta.url)), "utf8");
+const atomicAttemptWindowMigration = readFileSync(fileURLToPath(new URL("../supabase_attempt_window_atomic.sql", import.meta.url)), "utf8");
+const schoolLaunchGuide = readFileSync(fileURLToPath(new URL("../docs/school-launch.md", import.meta.url)), "utf8");
+const backupScriptSource = readFileSync(fileURLToPath(new URL("../scripts/backup-supabase.sh", import.meta.url)), "utf8");
 const baseSchema = readFileSync(fileURLToPath(new URL("../supabase_v2.sql", import.meta.url)), "utf8");
 const legacySchema = readFileSync(fileURLToPath(new URL("../../supabase_schema.sql", import.meta.url)), "utf8");
 const legacyLockdown = readFileSync(fileURLToPath(new URL("../supabase_legacy_public_tables_lockdown.sql", import.meta.url)), "utf8");
 const generateRoute = readFileSync(fileURLToPath(new URL("../app/api/generate/route.ts", import.meta.url)), "utf8");
+const draftRoute = readFileSync(fileURLToPath(new URL("../app/api/share/[token]/draft/route.ts", import.meta.url)), "utf8");
+const shareRoute = readFileSync(fileURLToPath(new URL("../app/api/share/[token]/route.ts", import.meta.url)), "utf8");
+const submitRoute = readFileSync(fileURLToPath(new URL("../app/api/share/[token]/submit/route.ts", import.meta.url)), "utf8");
 const groqClient = readFileSync(fileURLToPath(new URL("../lib/groq.ts", import.meta.url)), "utf8");
 const backupScript = fileURLToPath(new URL("../scripts/backup-supabase.sh", import.meta.url));
 const healthWorkflow = readFileSync(fileURLToPath(new URL("../../.github/workflows/production-health.yml", import.meta.url)), "utf8");
@@ -78,6 +85,90 @@ test("generation quota denies exhausted requests and fails closed on database er
   assert.equal(await reserveGeneration({ rpc: async () => { throw new Error("network unavailable"); } }), "unavailable");
 });
 
+test("attempt-window RPC readiness probe rejects unsafe Supabase URLs", () => {
+  const projectRef = "abcdefghijklmnopqrst";
+  assert.equal(validateSupabaseRootUrl(`https://${projectRef}.supabase.co`, projectRef), `https://${projectRef}.supabase.co`);
+  assert.equal(validateSupabaseRootUrl(`https://${projectRef}.supabase.co/`, projectRef), `https://${projectRef}.supabase.co`);
+  assert.equal(validateSupabaseRootUrl(`https://${projectRef}.supabase.co`, "zyxwvutsrqponmlkjihgf"), null);
+  assert.equal(validateSupabaseRootUrl(`https://${projectRef}.supabase.co:8443`, projectRef), null);
+  assert.equal(validateSupabaseRootUrl(`http://${projectRef}.supabase.co`, projectRef), null);
+  assert.equal(validateSupabaseRootUrl(`https://${projectRef}.supabase.co.evil.example`, projectRef), null);
+  assert.equal(validateSupabaseRootUrl(`https://user:password@${projectRef}.supabase.co`, projectRef), null);
+  assert.equal(validateSupabaseRootUrl(`https://${projectRef}.supabase.co/rest/v1`, projectRef), null);
+  assert.equal(validateSupabaseRootUrl(`https://${projectRef}.supabase.co`, undefined), null);
+});
+
+test("attempt-window RPC readiness probe sends only invalid null-argument calls and never logs the service key", async () => {
+  const requests = [];
+  const output = [];
+  const serviceKey = "test-service-key-must-not-be-logged";
+  const projectRef = "abcdefghijklmnopqrst";
+  const passed = await runRpcReadinessProbe({
+    supabaseUrl: `https://${projectRef}.supabase.co`,
+    expectedProjectRef: projectRef,
+    serviceKey,
+    fetchImpl: async (url, options) => {
+      requests.push({ url, options });
+      return new Response(JSON.stringify(url.endsWith("finalize_web_attempt") ? { status: "invalid" } : "invalid"), { status: 200 });
+    },
+    log: (message) => output.push(message),
+    errorLog: (message) => output.push(message),
+  });
+
+  assert.equal(passed, true);
+  assert.equal(requests.length, 3);
+  for (const { url, options } of requests) {
+    assert.match(url, new RegExp(`^https://${projectRef}\\.supabase\\.co/rest/v1/rpc/`));
+    assert.equal(options.method, "POST");
+    assert.equal(options.headers.apikey, serviceKey);
+    assert.equal(options.headers.authorization, `Bearer ${serviceKey}`);
+    const args = JSON.parse(options.body);
+    assert.equal(args.p_link_id, null);
+    assert.equal(args.p_test_id, null);
+    assert.equal(args.p_student_id, null);
+    if (url.endsWith("start_web_draft_if_open")) {
+      assert.deepEqual(args, { p_link_id: null, p_test_id: null, p_student_id: null });
+    } else if (url.endsWith("save_web_draft_if_open")) {
+      assert.deepEqual(args, { p_link_id: null, p_test_id: null, p_student_id: null, p_answers: {} });
+    } else {
+      assert.deepEqual(args, {
+        p_link_id: null,
+        p_test_id: null,
+        p_student_id: null,
+        p_expected_draft_updated_at: null,
+        p_expected_draft_answers: null,
+        p_current_answers: null,
+        p_current_percentage: null,
+        p_current_result: null,
+        p_saved_answers: null,
+        p_saved_percentage: null,
+        p_saved_result: null,
+      });
+    }
+  }
+  assert.equal(output.some((message) => message.includes(serviceKey)), false);
+  assert.equal(output.every((message) => message.includes("made no writes")), true);
+});
+
+test("attempt-window RPC readiness probe never sends the service key to a mismatched project", async () => {
+  let requested = false;
+  const errors = [];
+  const passed = await runRpcReadinessProbe({
+    supabaseUrl: "https://wrongprojectabcdefghijkl.supabase.co",
+    expectedProjectRef: "abcdefghijklmnopqrst",
+    serviceKey: "test-service-key-must-not-be-sent",
+    fetchImpl: async () => {
+      requested = true;
+      return new Response("invalid", { status: 200 });
+    },
+    errorLog: (message) => errors.push(message),
+  });
+
+  assert.equal(passed, false);
+  assert.equal(requested, false);
+  assert.equal(errors.some((message) => message.includes("test-service-key-must-not-be-sent")), false);
+});
+
 test("role migration ignores self-reported roles and only grants student on signup", () => {
   assert.match(migration, /create or replace function public\.create_web_profile\(\)/i);
   assert.match(migration, /on conflict \(id\) do nothing/i);
@@ -97,6 +188,36 @@ test("school migrations preserve attempt rows, add one-attempt enforcement, and 
   assert.match(manualReviewMigration, /alter column percentage drop not null/i);
   assert.match(summaryMigration, /security invoker/i);
   assert.match(summaryMigration, /grant execute on function public\.web_test_attempt_summary\(uuid\) to authenticated/i);
+});
+
+test("attempt-window persistence is atomic and its RPCs are service-role only", () => {
+  assert.match(atomicAttemptWindowMigration, /create or replace function public\.start_web_draft_if_open/i);
+  assert.match(atomicAttemptWindowMigration, /create or replace function public\.save_web_draft_if_open/i);
+  assert.match(atomicAttemptWindowMigration, /clock_timestamp\(\)\s*<\s*v_deadline/i);
+  assert.match(atomicAttemptWindowMigration, /started_at\s*\+\s*make_interval\(mins\s*=>\s*v_timer\)\s*>\s*clock_timestamp\(\)/i);
+  assert.match(atomicAttemptWindowMigration, /create or replace function public\.finalize_web_attempt/i);
+  assert.match(atomicAttemptWindowMigration, /for update of l, t, d/i);
+  assert.match(atomicAttemptWindowMigration, /v_now\s*:=\s*clock_timestamp\(\)/i);
+  assert.equal((atomicAttemptWindowMigration.match(/perform pg_advisory_xact_lock\(hashtextextended\(/g) || []).length, 3);
+  assert.match(atomicAttemptWindowMigration, /on conflict\s*\(test_id, student_id\)\s*do nothing/i);
+  assert.match(atomicAttemptWindowMigration, /revoke all on function public\.save_web_draft_if_open[\s\S]*?from public, anon, authenticated/i);
+  assert.match(atomicAttemptWindowMigration, /grant execute on function public\.save_web_draft_if_open[\s\S]*?to service_role/i);
+  assert.match(atomicAttemptWindowMigration, /revoke all on function public\.start_web_draft_if_open[\s\S]*?from public, anon, authenticated/i);
+  assert.match(atomicAttemptWindowMigration, /grant execute on function public\.start_web_draft_if_open[\s\S]*?to service_role/i);
+  assert.match(atomicAttemptWindowMigration, /revoke all on function public\.finalize_web_attempt[\s\S]*?from public, anon, authenticated/i);
+  assert.match(atomicAttemptWindowMigration, /grant execute on function public\.finalize_web_attempt[\s\S]*?to service_role/i);
+  assert.match(draftRoute, /admin\.rpc\("save_web_draft_if_open"/);
+  assert.doesNotMatch(draftRoute, /from\("web_drafts"\)\.update/);
+  assert.match(submitRoute, /admin\.rpc\("finalize_web_attempt"/);
+  assert.match(shareRoute, /admin\.rpc\("start_web_draft_if_open"/);
+  assert.doesNotMatch(submitRoute, /from\("web_attempts"\)\.insert/);
+});
+
+test("attempt-window rollback guidance keeps RPCs used by the parent release", () => {
+  assert.match(atomicAttemptWindowMigration, /keep save_web_draft_if_open and[\s\S]*?finalize_web_attempt/i);
+  assert.match(atomicAttemptWindowMigration, /drop all three only after[\s\S]*?no active application version calls/i);
+  assert.match(schoolLaunchGuide, /immediate parent release still calls `save_web_draft_if_open` and `finalize_web_attempt`/i);
+  assert.match(schoolLaunchGuide, /drop only `start_web_draft_if_open`/i);
 });
 
 test("legacy lockdown covers every table declared by the Python app schema", () => {
@@ -150,6 +271,10 @@ test("backup is published only after every dump and its checksum succeed", () =>
   const mockDump = join(scratch, "pg_dump");
   const mockRestore = join(scratch, "pg_restore");
   writeFileSync(mockDump, `#!/bin/sh
+if [ "$1" = "--version" ]; then
+  printf 'pg_dump (PostgreSQL) 18.0\\n'
+  exit 0
+fi
 out=""
 while [ "$#" -gt 0 ]; do
   if [ "$1" = "--file" ]; then shift; out="$1"; fi
@@ -158,7 +283,7 @@ done
 if [ "${"$"}MOCK_FAIL" = "1" ]; then exit 2; fi
 printf 'test dump\\n' > "$out"
 `);
-  writeFileSync(mockRestore, "#!/bin/sh\nexit 0\n");
+  writeFileSync(mockRestore, "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then printf 'pg_restore (PostgreSQL) 18.0\\n'; exit 0; fi\nexit 0\n");
   chmodSync(mockDump, 0o700);
   chmodSync(mockRestore, 0o700);
   const env = { ...process.env, PATH: `${scratch}:${process.env.PATH}`, SUPABASE_DB_URL: "postgres://mock:mock@localhost:5432/postgres", MOCK_FAIL: "" };
@@ -188,4 +313,9 @@ printf 'test dump\\n' > "$out"
   } finally {
     rmSync(scratch, { recursive: true, force: true });
   }
+});
+
+test("backup helper prompts interactively without echoing the database URI", () => {
+  assert.match(backupScriptSource, /read -r -s -p .*Session Pooler URI/);
+  assert.match(backupScriptSource, /run this script in an interactive terminal/);
 });

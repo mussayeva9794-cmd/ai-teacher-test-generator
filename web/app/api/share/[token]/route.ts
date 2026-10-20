@@ -1,7 +1,7 @@
 import type { NextRequest } from "next/server";
 import { actorFromRequest, jsonError } from "@/lib/auth";
 import { personalizedVariant, studentVariant } from "@/lib/assessment";
-import { attemptWindowExpired, canStartAttempt } from "@/lib/attempt-window";
+import { attemptWindowExpired } from "@/lib/attempt-window";
 import { shareContext } from "@/lib/share";
 
 export async function GET(request: NextRequest, { params }: { params: Promise<{ token: string }> }) {
@@ -22,13 +22,22 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   let { data: draft, error: loadError } = await admin.from("web_drafts")
     .select("answers,started_at,updated_at").eq("link_id", link.id).eq("student_id", actor.id).maybeSingle();
   if (loadError) return jsonError("Could not load your draft.", 503);
-  if (!draft && !canStartAttempt(settings.deadline_at)) {
-    return jsonError("The deadline for this test has passed.", 403);
-  }
   if (!draft) {
-    const { error: draftError } = await admin.from("web_drafts")
-      .insert({ link_id: link.id, student_id: actor.id, answers: {} });
-    if (draftError && draftError.code !== "23505") return jsonError("Could not start this test.", 503);
+    const { data: startStatus, error: startError } = await admin.rpc("start_web_draft_if_open", {
+      p_link_id: link.id,
+      p_test_id: test.id,
+      p_student_id: actor.id,
+    });
+    if (startError) {
+      console.error("Atomic attempt start failed", startError);
+      return jsonError("Could not start this test. Please retry.", 503);
+    }
+    if (startStatus === "expired") return jsonError("The deadline for this test has passed.", 403);
+    if (startStatus === "submitted") return jsonError("This test was already submitted.", 409);
+    if (startStatus === "unavailable") return jsonError("This test link is unavailable.", 404);
+    if (startStatus !== "started" && startStatus !== "existing") {
+      return jsonError("Could not start this test. Please retry.", 503);
+    }
     const loaded = await admin.from("web_drafts").select("answers,started_at,updated_at")
       .eq("link_id", link.id).eq("student_id", actor.id).single();
     draft = loaded.data;

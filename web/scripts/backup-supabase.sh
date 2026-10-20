@@ -3,13 +3,50 @@ set -euo pipefail
 umask 077
 
 if [[ -z "${SUPABASE_DB_URL:-}" ]]; then
-  printf 'Set SUPABASE_DB_URL privately before running this script.\n' >&2
-  exit 1
+  if [[ -t 0 ]]; then
+    read -r -s -p "Paste Supabase Session Pooler URI (input hidden): " SUPABASE_DB_URL
+    printf '\n'
+    if [[ -z "$SUPABASE_DB_URL" ]]; then
+      printf 'A database URI is required.\n' >&2
+      exit 1
+    fi
+    export SUPABASE_DB_URL
+  else
+    printf 'Set SUPABASE_DB_URL privately or run this script in an interactive terminal.\n' >&2
+    exit 1
+  fi
 fi
-if ! command -v pg_dump >/dev/null 2>&1 || ! command -v pg_restore >/dev/null 2>&1; then
+pg_dump_bin="${PG_DUMP_BIN:-$(command -v pg_dump || true)}"
+pg_restore_bin="${PG_RESTORE_BIN:-$(command -v pg_restore || true)}"
+if [[ -z "$pg_dump_bin" || ! -x "$pg_dump_bin" || -z "$pg_restore_bin" || ! -x "$pg_restore_bin" ]]; then
   printf 'PostgreSQL client tools (pg_dump and pg_restore) are required.\n' >&2
   exit 1
 fi
+
+dump_version="$($pg_dump_bin --version)"
+restore_version="$($pg_restore_bin --version)"
+if [[ "$dump_version" =~ ([0-9]+)\.[0-9]+ ]]; then
+  dump_major="${BASH_REMATCH[1]}"
+else
+  printf 'Could not determine pg_dump version.\n' >&2
+  exit 1
+fi
+if [[ "$restore_version" =~ ([0-9]+)\.[0-9]+ ]]; then
+  restore_major="${BASH_REMATCH[1]}"
+else
+  printf 'Could not determine pg_restore version.\n' >&2
+  exit 1
+fi
+if (( dump_major < 17 )); then
+  printf 'Supabase is PostgreSQL 17.6; pg_dump 17 or newer is required (found %s).\n' "$dump_version" >&2
+  printf 'Set PG_DUMP_BIN and PG_RESTORE_BIN to matching PostgreSQL client binaries.\n' >&2
+  exit 1
+fi
+if (( dump_major != restore_major )); then
+  printf 'Use matching pg_dump and pg_restore major versions (found %s and %s).\n' "$dump_version" "$restore_version" >&2
+  exit 1
+fi
+printf 'Using %s and %s.\n' "$dump_version" "$restore_version"
 
 root="${1:-$HOME/AI-Teacher-Backups}"
 mkdir -p "$root"
@@ -64,8 +101,8 @@ safe_uri = urlunsplit((parsed.scheme, safe_netloc, parsed.path or "/postgres", p
 PY
 export PGPASSFILE="$staging/.pgpass"
 connection_uri="$(<"$staging/.safe-uri")"
-pg_dump --dbname="$connection_uri" --format=custom --no-owner --schema=public --file "$staging/public.dump"
-pg_restore --list "$staging/public.dump" >/dev/null
+"$pg_dump_bin" --dbname="$connection_uri" --format=custom --no-owner --schema=public --file "$staging/public.dump"
+"$pg_restore_bin" --list "$staging/public.dump" >/dev/null
 (
   cd "$staging"
   shasum -a 256 public.dump > SHA256SUMS
