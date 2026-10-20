@@ -56,12 +56,12 @@ function psqlAsync(sql) {
   });
 }
 
-function finalizeSql({ linkId, testId, studentId, expectedAnswers, expectedUpdatedAt = "2026-10-20 10:00:00+00", currentAnswers, savedAnswers, currentScore = 20, savedScore = 80 }) {
+function finalizeSql({ linkId, testId, studentId, expectedAnswers, expectedUpdatedAt = "2026-10-20 10:00:00+00", currentAnswers, savedAnswers, currentScore = 20, savedScore = 80, currentResult = { percentage: currentScore }, savedResult = { percentage: savedScore } }) {
   return `select public.finalize_web_attempt(
     ${quote(linkId)}::uuid, ${quote(testId)}::uuid, ${quote(studentId)}::uuid,
     ${quote(expectedUpdatedAt)}::timestamptz, ${json(expectedAnswers)},
-    ${json(currentAnswers)}, ${currentScore}, ${json({ percentage: currentScore })},
-    ${json(savedAnswers)}, ${savedScore}, ${json({ percentage: savedScore })}
+    ${json(currentAnswers)}, ${currentScore}, ${json(currentResult)},
+    ${json(savedAnswers)}, ${savedScore}, ${json(savedResult)}
   )::text;`;
 }
 
@@ -73,7 +73,8 @@ function parseJsonRow(rows) {
 const ids = Object.fromEntries(
   ["owner", "openTest", "openLink", "openStudent", "expiredSaveTest", "expiredSaveLink", "expiredSaveStudent",
     "expiredSubmitTest", "expiredSubmitLink", "expiredSubmitStudent", "raceTest", "raceLinkA", "raceLinkB", "raceStudent",
-    "saveRaceTest", "saveRaceLink", "saveRaceStudent", "classLoadTest", "classLoadLink"]
+    "saveRaceTest", "saveRaceLink", "saveRaceStudent", "classLoadTest", "classLoadLink",
+    "manualReviewTest", "manualReviewLink", "manualReviewStudent", "expiredReviewTest", "expiredReviewLink", "expiredReviewStudent"]
     .map((name) => [name, randomUUID()]),
 );
 
@@ -93,7 +94,7 @@ create table if not exists public.web_share_links (
 create table if not exists public.web_attempts (
   id uuid primary key default gen_random_uuid(), test_id uuid not null, link_id uuid not null,
   student_id uuid not null, variant_name text not null, answers jsonb not null,
-  percentage numeric not null, result jsonb not null, submitted_at timestamptz not null default now(),
+  percentage numeric, result jsonb not null, submitted_at timestamptz not null default now(),
   unique (test_id, student_id)
 );
 create table if not exists public.web_drafts (
@@ -132,6 +133,11 @@ insertCase({ testId: ids.raceTest, linkIds: [ids.raceLinkA, ids.raceLinkB], stud
 insertCase({ testId: ids.saveRaceTest, linkIds: [ids.saveRaceLink], studentId: ids.saveRaceStudent, settings: [{ timer_minutes: 10 }] });
 const classLoadStudents = Array.from({ length: 25 }, () => randomUUID());
 insertCase({ testId: ids.classLoadTest, linkIds: [ids.classLoadLink], studentId: classLoadStudents[0] });
+insertCase({ testId: ids.manualReviewTest, linkIds: [ids.manualReviewLink], studentId: ids.manualReviewStudent });
+insertCase({
+  testId: ids.expiredReviewTest, linkIds: [ids.expiredReviewLink], studentId: ids.expiredReviewStudent,
+  settings: [{ deadline_at: "2000-01-01T00:00:00Z", timer_minutes: 0 }],
+});
 psqlSync(`insert into public.web_drafts (link_id, student_id, answers, started_at, updated_at) values ${classLoadStudents.slice(1).map((studentId) =>
   `(${quote(ids.classLoadLink)}::uuid, ${quote(studentId)}::uuid, ${json({ q1: "saved" })}, now() - interval '1 minute', '2026-10-20 10:00:00+00')`,
 ).join(",\n")};`);
@@ -170,6 +176,34 @@ assert.equal(expiredSubmit.percentage, 80);
 assert.deepEqual(parseJsonRow(psqlSync(`select jsonb_build_object('answers', answers, 'percentage', percentage)::text from public.web_attempts where test_id = ${quote(ids.expiredSubmitTest)}::uuid;`)), {
   answers: { q1: "saved" }, percentage: 80,
 });
+
+const pendingReviewResult = {
+  percentage: null,
+  requires_manual_review: true,
+  total_score: 0,
+  total_questions: 1,
+  per_question: [{ id: "q1", score: 0, requires_manual_review: true }],
+};
+const manualReviewSubmit = parseJsonRow(psqlSync(finalizeSql({
+  linkId: ids.manualReviewLink, testId: ids.manualReviewTest, studentId: ids.manualReviewStudent,
+  expectedAnswers: { q1: "saved" }, currentAnswers: { q1: "free text" }, savedAnswers: { q1: "saved" },
+  currentScore: null, currentResult: pendingReviewResult,
+})));
+assert.equal(manualReviewSubmit.status, "submitted");
+assert.equal(manualReviewSubmit.percentage, null, "non-exact free-text answers should remain pending teacher review");
+assert.deepEqual(parseJsonRow(psqlSync(`select jsonb_build_object('percentage', percentage, 'requires_manual_review', result->'requires_manual_review')::text from public.web_attempts where test_id = ${quote(ids.manualReviewTest)}::uuid;`)), {
+  percentage: null, requires_manual_review: true,
+});
+
+const expiredManualReview = parseJsonRow(psqlSync(finalizeSql({
+  linkId: ids.expiredReviewLink, testId: ids.expiredReviewTest, studentId: ids.expiredReviewStudent,
+  expectedAnswers: { q1: "saved" }, currentAnswers: { q1: "too-late" }, savedAnswers: { q1: "saved" },
+  currentScore: null, savedScore: null,
+  currentResult: pendingReviewResult, savedResult: pendingReviewResult,
+})));
+assert.equal(expiredManualReview.status, "submitted");
+assert.equal(expiredManualReview.expired, true);
+assert.equal(expiredManualReview.percentage, null, "expired work must remain available for manual review");
 
 const raceCalls = [ids.raceLinkA, ids.raceLinkB].map((linkId) =>
   psqlAsync(`select pg_sleep(0.2);\n${finalizeSql({
@@ -227,4 +261,4 @@ const grants = psqlSync(`select
   and not has_function_privilege('anon', 'public.finalize_web_attempt(uuid,uuid,uuid,timestamptz,jsonb,jsonb,numeric,jsonb,jsonb,numeric,jsonb)', 'execute');`)[0];
 assert.equal(grants, "t", "only service_role should be allowed to execute the deadline RPCs");
 
-console.log("PostgreSQL attempt-window integration passed: deadlines, saved-draft finalization, duplicate-submit and autosave races, 25 concurrent students, and RPC grants.");
+console.log("PostgreSQL attempt-window integration passed: deadlines, saved-draft finalization, manual-review submissions, duplicate-submit and autosave races, 25 concurrent students, and RPC grants.");
