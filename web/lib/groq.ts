@@ -1,4 +1,4 @@
-import type { Question, QuestionType, TestVariant } from "./types";
+import type { Question, QuestionType, TestSource, TestVariant } from "./types";
 import { isValidVariant } from "./assessment";
 import { networkErrorCode } from "./network-error";
 
@@ -10,6 +10,7 @@ export type GenerateInput = {
   gradeLevel: string;
   objective: string;
   sourceText?: string;
+  sources?: TestSource[];
 };
 
 export class GroqGenerationError extends Error {
@@ -42,6 +43,7 @@ function responseSchema(input: GenerateInput) {
     correct_answer: { type: "string" },
     explanation: { type: "string" },
     skill_tag: { type: "string" },
+    source_reference: { type: "string" },
   };
   if (input.type === "multiple_choice" || input.type === "true_false") {
     questionProperties.options = {
@@ -126,6 +128,7 @@ function toQuestion(
     correct_answer: input.type === "matching" ? "" : correctAnswer,
     explanation: String(source.explanation || "").trim(),
     skill_tag: String(source.skill_tag || input.topic).trim(),
+    source_reference: String(source.source_reference || "").trim().slice(0, 320) || undefined,
   };
 }
 
@@ -137,7 +140,7 @@ Language: ${input.language}. Grade: ${input.gradeLevel || "school"}. Difficulty:
 Learning objective: ${input.objective || "understand and apply the topic"}.
 ${input.sourceText ? `Use this source as primary context: ${input.sourceText.slice(0, 12000)}` : ""}
 Return only a JSON object with title, instructions, questions. The questions array MUST contain exactly ${input.count} items. Every question must contain id, type,
-question, correct_answer, explanation, skill_tag. Multiple choice: 4 distinct options including
+question, correct_answer, explanation, skill_tag, source_reference. If a source was provided, source_reference must be a brief reference to the relevant heading, page, or passage from that source. If no source was provided, use an empty string. Multiple choice: 4 distinct options including
 correct_answer. True/false: use exactly ${TRUE_FALSE_OPTIONS[input.language].join(" and ")} and make correct_answer one of them. Matching: pairs array
 of objects with left and right plus correct_answer as an empty string. Short answer: concise model answer.
 Do not repeat questions, do not include unsupported facts, keep the answer unambiguous.`;
@@ -190,6 +193,7 @@ Do not repeat questions, do not include unsupported facts, keep the answer unamb
     questions: Array.isArray(raw.questions)
       ? raw.questions.slice(0, input.count).map((question, index) => toQuestion(question, input, difficulty, index))
       : [],
+    sources: input.sources,
   };
   if (!isValidVariant(variant) || variant.questions.length !== input.count || variant.questions.some((q) => !q.question)) {
     throw new GroqGenerationError("invalid_response", "AI returned an incomplete test.");
@@ -218,14 +222,15 @@ export async function generateVariants(input: GenerateInput): Promise<Record<str
   const easy = await generateVariant(input, "easy");
   const medium = await generateVariant(input, "medium");
   const hard = await generateVariant(input, "hard");
-  const sources = [easy, medium, hard];
+  const generated = [easy, medium, hard];
   const mixed: TestVariant = {
     title: `${medium.title} — mixed`,
     instructions: medium.instructions,
     questions: Array.from({ length: input.count }, (_, index) => ({
-      ...sources[index % 3].questions[index],
+      ...generated[index % 3].questions[index],
       id: `mixed-${index + 1}`,
     })),
+    sources: input.sources,
   };
   return { "Variant A": easy, "Variant B": medium, "Variant C": hard, "Variant D": mixed };
 }

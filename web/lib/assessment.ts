@@ -3,17 +3,58 @@ import type { Question, ShareSettings, TestVariant } from "./types";
 
 export function isValidVariant(value: unknown): value is TestVariant {
   if (!value || typeof value !== "object") return false;
-  const variant = value as TestVariant;
-  return typeof variant.title === "string" && Array.isArray(variant.questions) &&
-    variant.questions.length > 0 && variant.questions.length <= 50 &&
-    variant.questions.every((q) =>
-      typeof q.id === "string" && typeof q.question === "string" &&
-      typeof q.correct_answer === "string" &&
-      ["multiple_choice", "true_false", "short_answer", "matching"].includes(q.type) &&
-      (q.type !== "multiple_choice" && q.type !== "true_false" ||
-        (Array.isArray(q.options) && q.options.includes(q.correct_answer))) &&
-      (q.type !== "matching" || Array.isArray(q.pairs))
-    );
+  const variant = value as Partial<TestVariant>;
+  if (typeof variant.title !== "string" || !variant.title.trim() || !Array.isArray(variant.questions) ||
+    variant.questions.length === 0 || variant.questions.length > 50) return false;
+
+  if (variant.sources !== undefined && (!Array.isArray(variant.sources) || variant.sources.length > 8 ||
+    !variant.sources.every((source) => {
+      if (!source || typeof source !== "object") return false;
+      const item = source as { label?: unknown; pages?: unknown; url?: unknown };
+      if (typeof item.label !== "string" || !item.label.trim() || item.label.length > 180) return false;
+      if (item.pages !== undefined && (typeof item.pages !== "string" || item.pages.length > 120)) return false;
+      if (item.url !== undefined) {
+        if (typeof item.url !== "string") return false;
+        try { if (new URL(item.url).protocol !== "https:") return false; } catch { return false; }
+      }
+      return true;
+    }))) return false;
+
+  return variant.questions.every((value) => {
+    if (!value || typeof value !== "object") return false;
+    const question = value as Partial<Question>;
+    if (typeof question.id !== "string" || !question.id.trim() || typeof question.question !== "string" ||
+      !question.question.trim() || typeof question.correct_answer !== "string" ||
+      !["multiple_choice", "true_false", "short_answer", "matching"].includes(question.type || "") ||
+      (question.source_reference !== undefined && (typeof question.source_reference !== "string" || question.source_reference.length > 320))) return false;
+
+    if (question.type === "multiple_choice" || question.type === "true_false") {
+      if (!Array.isArray(question.options)) return false;
+      // Legacy teacher-authored tests may have two or three choices. Reject a
+      // one-choice question, but do not invalidate an already published test.
+      const requiredCount = 2;
+      const options = question.options;
+      if (options.length < requiredCount || !options.every((option) => typeof option === "string" && Boolean(option.trim()))) return false;
+      const normalizedOptions = options.map((option) => option.trim().toLocaleLowerCase());
+      return new Set(normalizedOptions).size === options.length && normalizedOptions.includes(question.correct_answer.trim().toLocaleLowerCase());
+    }
+
+    if (question.type === "matching") {
+      if (!Array.isArray(question.pairs) || question.pairs.length < 2) return false;
+      const left = new Set<string>();
+      const right = new Set<string>();
+      return question.pairs.every((pair) => {
+        if (!pair || typeof pair.left !== "string" || typeof pair.right !== "string" || !pair.left.trim() || !pair.right.trim()) return false;
+        const normalizedLeft = pair.left.trim().toLocaleLowerCase();
+        const normalizedRight = pair.right.trim().toLocaleLowerCase();
+        if (left.has(normalizedLeft) || right.has(normalizedRight)) return false;
+        left.add(normalizedLeft); right.add(normalizedRight);
+        return true;
+      });
+    }
+
+    return Boolean(question.correct_answer.trim());
+  });
 }
 
 function shuffle<T>(items: T[], seed: string): T[] {
@@ -42,7 +83,7 @@ export function studentVariant(variant: TestVariant) {
   return {
     title: variant.title,
     instructions: variant.instructions,
-    questions: variant.questions.map(({ correct_answer: _answer, explanation: _explanation, ...question }) => ({
+    questions: variant.questions.map(({ correct_answer: _answer, explanation: _explanation, source_reference: _sourceReference, ...question }) => ({
       ...question,
       // Matching rows are rendered from the left side only; never send the answer mapping to students.
       pairs: question.pairs?.map(({ left }) => ({ left, right: "" })),

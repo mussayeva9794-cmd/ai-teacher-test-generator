@@ -22,6 +22,20 @@ export async function POST(request: NextRequest) {
   if (!body.language || !["russian", "kazakh", "english"].includes(body.language)) {
     return jsonError("Choose a language.");
   }
+  const sourceText = String(body.sourceText || "").trim().slice(0, 12000);
+  const sourceTitle = String(body.sourceTitle || "").trim().slice(0, 180);
+  const sourcePages = String(body.sourcePages || "").trim().slice(0, 120);
+  const sourceUrl = String(body.sourceUrl || "").trim().slice(0, 500);
+  if ((sourceTitle || sourcePages || sourceUrl) && !sourceText) {
+    return jsonError("Add the source text before adding source details.");
+  }
+  if (sourceUrl) {
+    try {
+      if (new URL(sourceUrl).protocol !== "https:") throw new Error("Only HTTPS URLs are allowed.");
+    } catch {
+      return jsonError("Source URL must be a valid HTTPS address.");
+    }
+  }
   const db = userClient(actor.accessToken);
   let reservationWindow: string | null;
   try {
@@ -50,7 +64,12 @@ export async function POST(request: NextRequest) {
       topic, count, type: body.type, language: body.language,
       gradeLevel: String(body.gradeLevel || "").slice(0, 80),
       objective: String(body.objective || "").slice(0, 1000),
-      sourceText: String(body.sourceText || "").slice(0, 12000),
+      sourceText,
+      sources: sourceText ? [{
+        label: sourceTitle || "Материал, добавленный преподавателем",
+        ...(sourcePages ? { pages: sourcePages } : {}),
+        ...(sourceUrl ? { url: sourceUrl } : {}),
+      }] : [],
     });
   } catch (error) {
     const reason = error instanceof GroqGenerationError ? error.reason : "upstream";

@@ -9,12 +9,21 @@ export type Question = {
   correct_answer: string;
   explanation: string;
   skill_tag: string;
+  source_reference?: string;
+};
+
+export type TestSource = {
+  label: string;
+  pages?: string;
+  url?: string;
 };
 
 export type TestVariant = {
   title: string;
   instructions: string;
   questions: Question[];
+  // Stored in the variant JSON so existing database rows remain compatible.
+  sources?: TestSource[];
 };
 
 export type ShareSettings = {

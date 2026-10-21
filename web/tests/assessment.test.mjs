@@ -1,10 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { grade, personalizedVariant, studentVariant, parseSettings } from "../lib/assessment.ts";
+import { grade, isValidVariant, personalizedVariant, studentVariant, parseSettings } from "../lib/assessment.ts";
 
 const variant = {
   title: "Demo", instructions: "Answer all questions", questions: [
-    { id: "q1", type: "multiple_choice", question: "2 + 2?", options: ["3", "4", "5"], correct_answer: "4", explanation: "Addition", skill_tag: "Arithmetic" },
+    { id: "q1", type: "multiple_choice", question: "2 + 2?", options: ["3", "4", "5", "6"], correct_answer: "4", explanation: "Addition", skill_tag: "Arithmetic", source_reference: "§ 1" },
     { id: "q2", type: "short_answer", question: "Capital of Kazakhstan?", correct_answer: "Astana", explanation: "Capital", skill_tag: "Geography" },
     { id: "q3", type: "matching", question: "Match", correct_answer: "", pairs: [{ left: "A", right: "Answer A" }, { left: "B", right: "Answer B" }] },
   ],
@@ -14,6 +14,7 @@ test("student payload never contains answer keys or explanations", () => {
   const publicVariant = studentVariant(variant);
   assert.equal(JSON.stringify(publicVariant).includes("correct_answer"), false);
   assert.equal(JSON.stringify(publicVariant).includes("explanation"), false);
+  assert.equal(JSON.stringify(publicVariant).includes("source_reference"), false);
   assert.deepEqual(publicVariant.questions[2].pairs, [{ left: "A", right: "" }, { left: "B", right: "" }]);
   assert.equal(JSON.stringify(publicVariant).includes("Answer A"), false);
   assert.equal(JSON.stringify(publicVariant).includes("Answer B"), false);
@@ -45,4 +46,10 @@ test("share settings default to no instant score and clamp timer", () => {
   assert.equal(settings.reveal_score, false);
   assert.equal(settings.timer_minutes, 240);
   assert.deepEqual(settings.allowed_students, ["student@example.com"]);
+});
+
+test("variant validation rejects incomplete choice and matching questions", () => {
+  assert.equal(isValidVariant(variant), true);
+  assert.equal(isValidVariant({ ...variant, questions: [{ ...variant.questions[0], options: ["3"] }] }), false);
+  assert.equal(isValidVariant({ ...variant, questions: [{ ...variant.questions[2], pairs: [{ left: "A", right: "Answer A" }] }] }), false);
 });
