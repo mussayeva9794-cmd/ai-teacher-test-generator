@@ -3,6 +3,7 @@
 import { useSearchParams, useRouter } from "next/navigation";
 import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
+import { SheetsIllustration } from "../illustrations";
 import { browserClient } from "@/lib/supabase";
 import { oauthRequestedNext, safeNext } from "@/lib/client";
 import { signInWithPasskey } from "@/lib/passkeys";
@@ -136,8 +137,9 @@ function LoginForm() {
   }
 
   return <div className="wrap"><header className="topbar"><Link className="brand" href="/"><span className="brand-mark">A</span> AI Teacher</Link></header>
-    <main className="panel" style={{ maxWidth: 460, margin: "8vh auto" }}><div className="eyebrow">Личный кабинет</div><h2>{mode === "signup" ? "Создать аккаунт" : "С возвращением"}</h2><p className="muted">{mode === "signup" ? "Новый аккаунт создаётся для ученика. Учительский доступ выдаёт администратор школы." : "Войдите, чтобы продолжить работу."}</p>
-      <div className="tabs" style={{ marginBottom: 22 }}><button className={mode === "signin" ? "active" : ""} onClick={() => setMode("signin")}>Вход</button><button className={mode === "signup" ? "active" : ""} onClick={() => setMode("signup")}>Регистрация</button></div>
+    <div className="auth-layout"><aside className="auth-art draw-in enter" aria-hidden="true"><SheetsIllustration /><p className="auth-art-caption"><b>Тест готов за минуту.</b>Четыре варианта, ссылка для класса и результаты — в одном месте.</p></aside>
+    <main className="panel enter" style={{ ["--i" as string]: 1 }}><div className="eyebrow">Личный кабинет</div><h2>{mode === "signup" ? "Создать аккаунт" : "С возвращением"}</h2><p className="muted">{mode === "signup" ? "Новый аккаунт создаётся для ученика. Учительский доступ выдаёт администратор школы." : "Войдите, чтобы продолжить работу."}</p>
+      <div className="tabs tabs-slide" style={{ marginBottom: 22 }}><button className={mode === "signin" ? "active" : ""} onClick={() => setMode("signin")}>Вход</button><button className={mode === "signup" ? "active" : ""} onClick={() => setMode("signup")}>Регистрация</button></div>
       <form className="stack" onSubmit={submit}>
         {mode === "signup" && <label className="field">Имя<input required value={name} onChange={e => setName(e.target.value)} autoComplete="name" /></label>}
         <label className="field">Электронная почта<input required type="email" value={email} onChange={e => { setEmail(e.target.value); setError(""); setMessage(""); }} autoComplete="email" /></label>
@@ -150,7 +152,7 @@ function LoginForm() {
         {mode === "signin" && <><p className="muted small" style={{ textAlign: "center", marginBottom: 0 }}>или войти без Google</p><button type="button" className="btn" disabled={busy} onClick={passkeySignIn}>Войти с Face ID / Touch ID</button><p className="muted small">Также может потребоваться код разблокировки устройства. Пароль остаётся доступным.</p></>}
       </div>
       <p className="small muted" style={{ textAlign: "center", marginTop: 18 }}>Как сервис использует данные аккаунта и учебные данные: <Link href="/privacy">политика конфиденциальности</Link>.</p>
-    </main></div>;
+    </main></div></div>;
 }
 
 export default function LoginPage() { return <Suspense fallback={<div className="wrap">Загрузка...</div>}><LoginForm /></Suspense>; }

@@ -1,4 +1,9 @@
 import Link from "next/link";
+import type { CSSProperties } from "react";
+import { PrepareIllustration, ResultsIllustration, ShareIllustration } from "./illustrations";
+
+// Stagger index for the entrance animation in motion.css.
+const order = (i: number) => ({ "--i": i }) as CSSProperties;
 
 export default function Home() {
   return (
@@ -15,17 +20,17 @@ export default function Home() {
 
       <main className="hero">
         <section className="hero-copy">
-          <div className="eyebrow">Рабочее пространство для учителя</div>
-          <h1>Ваше время — <em>для учеников.</em> Не для проверки тестов.</h1>
-          <p>Создавайте четыре варианта, делитесь ссылкой с классом и смотрите результаты в одном месте. Без лишних вкладок и ручных таблиц.</p>
-          <div className="hero-actions">
+          <div className="eyebrow enter" style={order(0)}>Рабочее пространство для учителя</div>
+          <h1 className="enter" style={order(1)}>Ваше время — <em>для учеников.</em> Не для проверки тестов.</h1>
+          <p className="enter" style={order(2)}>Создавайте четыре варианта, делитесь ссылкой с классом и смотрите результаты в одном месте. Без лишних вкладок и ручных таблиц.</p>
+          <div className="hero-actions enter" style={order(3)}>
             <Link className="btn primary" href="/login?mode=signup">Начать работу <span aria-hidden="true">↗</span></Link>
             <Link className="btn" href="/login">У меня есть аккаунт</Link>
           </div>
-          <div className="hero-footnote"><span className="hero-footnote-line" /> От идеи до готовой ссылки ученику</div>
+          <div className="hero-footnote enter" style={order(4)}><span className="hero-footnote-line" /> От идеи до готовой ссылки ученику</div>
         </section>
 
-        <div className="hero-art" aria-hidden="true">
+        <div className="hero-art enter" style={order(2)} aria-hidden="true">
           <div className="hero-orb hero-orb-one" />
           <div className="hero-orb hero-orb-two" />
           <div className="hero-preview">
@@ -46,9 +51,9 @@ export default function Home() {
       <section className="home-process" aria-label="Как это работает">
         <div className="home-process-head"><div className="eyebrow">Простой маршрут</div><h2>Меньше рутины.<br />Больше внимания классу.</h2></div>
         <div className="grid cols-3">
-          <div className="panel process-card"><span className="process-number">01</span><h3>Подготовьте</h3><p className="muted">Задайте тему, класс и язык. Проверьте вопросы перед публикацией.</p></div>
-          <div className="panel process-card"><span className="process-number">02</span><h3>Отправьте</h3><p className="muted">Поделитесь ссылкой, настройте время и список допущенных учеников.</p></div>
-          <div className="panel process-card"><span className="process-number">03</span><h3>Увидьте результат</h3><p className="muted">Смотрите ответы и результаты в кабинете учителя.</p></div>
+          <div className="panel process-card scroll-reveal" style={order(0)}><PrepareIllustration className="process-illustration" /><span className="process-number">01</span><h3>Подготовьте</h3><p className="muted">Задайте тему, класс и язык. Проверьте вопросы перед публикацией.</p></div>
+          <div className="panel process-card scroll-reveal" style={order(1)}><ShareIllustration className="process-illustration" /><span className="process-number">02</span><h3>Отправьте</h3><p className="muted">Поделитесь ссылкой, настройте время и список допущенных учеников.</p></div>
+          <div className="panel process-card scroll-reveal" style={order(2)}><ResultsIllustration className="process-illustration" /><span className="process-number">03</span><h3>Увидьте результат</h3><p className="muted">Смотрите ответы и результаты в кабинете учителя.</p></div>
         </div>
       </section>
       <footer className="footer"><span>AI Teacher Test Generator</span><div className="row"><Link href="/privacy">Конфиденциальность</Link><Link href="/account">Face ID / Touch ID</Link></div></footer>

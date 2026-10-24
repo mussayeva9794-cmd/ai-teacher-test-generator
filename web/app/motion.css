@@ -1,0 +1,187 @@
+/*
+ * Motion layer. Colours come from glass.css/globals.css; this file only moves
+ * things. Every element's resting style is its final, fully visible state, so
+ * with animations off (reduced motion, old browsers) nothing is hidden.
+ * Only opacity, transform, clip-path and SVG stroke offsets are animated.
+ */
+:root {
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+}
+
+@keyframes rise {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes rise-soft {
+  from { opacity: 0; transform: translateY(10px) scale(.97); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes draw {
+  0% { stroke-dashoffset: 1; opacity: 0; }
+  12% { opacity: 1; }
+  100% { stroke-dashoffset: 0; opacity: 1; }
+}
+
+.illus { display: block; width: 100%; height: auto; overflow: visible; }
+.illus .draw { stroke-dasharray: 1 1; stroke-dashoffset: 0; }
+
+/* ---------- Landing: staggered entrance (explanation, first visit) ---------- */
+.enter {
+  animation: rise 720ms var(--ease-out) both;
+  animation-delay: calc(var(--i, 0) * 70ms + 60ms);
+}
+.home-page .hero-art.enter { animation-name: rise-soft; animation-duration: 900ms; }
+
+/* ---------- Landing: the preview card acts out the product ---------- */
+/* Variant chips take turns being active: A, B, C, D, then repeat. */
+@keyframes chip-turn {
+  0%, 22% { border-color: #e9b6bd; background-color: #fff0ef; color: var(--wine); }
+  25%, 100% { border-color: #e9dcd4; background-color: #fff; color: #665a55; }
+}
+.hero-preview-options span { animation: chip-turn 8s linear infinite; animation-delay: calc(var(--chip, 0) * 2s); }
+.hero-preview-options span:nth-child(1) { --chip: 0; }
+.hero-preview-options span:nth-child(2) { --chip: 1; }
+.hero-preview-options span:nth-child(3) { --chip: 2; }
+.hero-preview-options span:nth-child(4) { --chip: 3; }
+
+/* Question lines "type" again each time the active variant changes (every 2 s). */
+@keyframes type-line {
+  0% { clip-path: inset(0 100% 0 0); }
+  40%, 88% { clip-path: inset(0 0 0 0); }
+  100% { clip-path: inset(0 100% 0 0); }
+}
+.hero-preview-line { animation: type-line 2s var(--ease-out) infinite; }
+.hero-preview-line.short { animation-delay: 150ms; }
+
+/* Results bar fills as answers arrive. */
+@keyframes fill-rule {
+  0% { transform: scaleX(.18); }
+  70%, 100% { transform: scaleX(1); }
+}
+.hero-floating-rule { transform-origin: left center; animation: fill-rule 8s var(--ease-in-out) infinite alternate; }
+
+/* Gentle float on wide screens only: the preview uses backdrop blur, and
+   moving a blurred layer is costly on phones. */
+@media (min-width: 761px) {
+  @keyframes float-preview {
+    0%, 100% { transform: rotate(-3deg) translateY(0); }
+    50% { transform: rotate(-3deg) translateY(-8px); }
+  }
+  @keyframes float-card {
+    0%, 100% { transform: rotate(5deg) translateY(0); }
+    50% { transform: rotate(5deg) translateY(-10px); }
+  }
+  .hero-preview { animation: float-preview 7s var(--ease-in-out) infinite; }
+  .hero-floating-card { animation: float-card 6s var(--ease-in-out) infinite; animation-delay: -2s; }
+}
+
+/* ---------- Landing: process cards with illustrations ---------- */
+.process-card { overflow: hidden; }
+.process-illustration { width: min(150px, 46%); margin: -6px 0 6px auto; }
+.process-card .process-number { position: absolute; top: 29px; left: 29px; margin: 0; }
+
+/* Scroll-linked reveal where supported; elsewhere the cards are simply shown. */
+@supports (animation-timeline: view()) {
+  .scroll-reveal {
+    animation: rise linear both;
+    animation-timeline: view();
+    /* Finish by the time the card is fully on screen, so cards at the very
+       bottom of the page (which can never scroll further up) end fully visible. */
+    animation-range: entry calc(var(--i, 0) * 10%) entry 100%;
+  }
+  .scroll-reveal .draw {
+    animation: draw linear both;
+    animation-timeline: view();
+    animation-range: entry calc(30% + var(--d, 0) * 10%) entry 100%;
+  }
+}
+
+/* ---------- Draw-once illustrations (login, empty state, submitted) ---------- */
+.draw-in .draw {
+  animation: draw 900ms var(--ease-out) both;
+  animation-delay: calc(var(--d, 0) * 160ms + 250ms);
+}
+@keyframes float-slow {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-6px); }
+}
+.draw-in .float-slow { animation: float-slow 6s var(--ease-in-out) infinite; }
+
+/* ---------- Login: illustration beside the form ---------- */
+.auth-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 460px);
+  align-items: start;
+  gap: clamp(28px, 5vw, 72px);
+  max-width: 1040px;
+  margin: 6vh auto;
+}
+.auth-art { display: grid; gap: 18px; position: sticky; top: 32px; padding-top: 24px; }
+.auth-art .illus { max-width: 420px; }
+.auth-art-caption { max-width: 380px; color: var(--muted); line-height: 1.65; }
+.auth-art-caption b { color: var(--ink); font-family: Manrope, sans-serif; font-size: 1.35rem; letter-spacing: -.04em; display: block; margin-bottom: 6px; }
+.auth-layout > .panel { margin: 0; }
+@media (max-width: 900px) {
+  .auth-layout { grid-template-columns: 1fr; max-width: 460px; }
+  .auth-art { display: none; }
+}
+
+/* Sliding selection for the two-tab sign-in switch (an on-screen move). */
+.tabs.tabs-slide { position: relative; display: grid; grid-template-columns: 1fr 1fr; width: 100%; isolation: isolate; }
+.tabs.tabs-slide::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  top: 6px; bottom: 6px; left: 6px;
+  width: calc(50% - 6px);
+  border-radius: 11px;
+  background: #fffdf9;
+  box-shadow: 0 3px 12px rgba(60, 31, 29, .1);
+  transition: transform 260ms var(--ease-in-out);
+}
+.tabs.tabs-slide:has(button:nth-child(2).active)::before { transform: translateX(100%); }
+.tabs.tabs-slide button.active { background: transparent; box-shadow: none; }
+.tabs.tabs-slide button { transition: color 200ms ease; }
+
+/* ---------- Teacher pages ---------- */
+.page-enter { animation: rise 520ms var(--ease-out) both; }
+.empty-state { display: grid; grid-template-columns: 160px minmax(0, 1fr); align-items: center; gap: 24px; }
+@media (max-width: 560px) { .empty-state { grid-template-columns: 1fr; } .empty-state .illus { max-width: 160px; } }
+
+/* While AI writes the test (up to a minute): a draft that fills itself in. */
+@keyframes write-line {
+  0% { transform: scaleX(0.04); opacity: .5; }
+  60%, 100% { transform: scaleX(1); opacity: 1; }
+}
+@keyframes chip-pulse {
+  0%, 100% { opacity: .45; }
+  50% { opacity: 1; }
+}
+.generating-draft { display: grid; gap: 12px; margin-top: 18px; padding: 18px; border: 1px solid var(--line); border-radius: 16px; background: #fffdfa; }
+.generating-draft .gen-chips { display: flex; gap: 6px; }
+.generating-draft .gen-chips span { padding: 5px 9px; border: 1px solid #e9b6bd; border-radius: 8px; background: #fff0ef; color: var(--wine); font-size: .7rem; font-weight: 800; animation: chip-pulse 1.6s var(--ease-in-out) infinite; animation-delay: calc(var(--i, 0) * 200ms); }
+.generating-draft .gen-line { display: block; height: 8px; border-radius: 8px; background: #eae2db; transform-origin: left center; animation: write-line 1.8s var(--ease-out) infinite alternate; animation-delay: calc(var(--i, 0) * 180ms); }
+.generating-draft .gen-line.short { width: 62%; }
+
+/* ---------- Student: one calm confirmation after submitting ---------- */
+.submitted-check { width: 72px; margin: 0 auto 6px; }
+
+/* Hover lift only where a real pointer hovers. */
+@media (hover: none) {
+  a.panel:hover, .btn:hover { transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .enter, .scroll-reveal, .page-enter,
+  .hero-preview, .hero-floating-card, .hero-preview-options span, .hero-preview-line, .hero-floating-rule,
+  .illus .draw, .draw-in .float-slow,
+  .generating-draft .gen-line, .generating-draft .gen-chips span {
+    animation: none !important;
+  }
+  .tabs.tabs-slide::before { transition: none; }
+}
