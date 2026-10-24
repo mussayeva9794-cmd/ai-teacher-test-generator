@@ -77,9 +77,9 @@ test("a strict attempt submitted without answers (last question timed out) uses 
   assert.equal(calls.some(call => call.insert === "web_attempt_events"), false);
 });
 
-test("an unlocked strict attempt still submits the student's current answers", async () => {
+test("an unlocked strict attempt submits only the server-saved current answer", async () => {
   const { calls, request } = setup({ leaves: 1, body: { answers: { q1: "fresh" } } });
   const response = await POST(request, params);
   assert.equal(response.status, 200);
-  assert.deepEqual(calls.find(call => call.rpc === "finalize_web_attempt").args.p_current_answers, { q1: "fresh" });
+  assert.deepEqual(calls.find(call => call.rpc === "finalize_web_attempt").args.p_current_answers, { q1: "saved" });
 });
