@@ -55,7 +55,8 @@ psql(`
   drop schema public cascade;
   create schema public;
   create extension if not exists pgcrypto;
-  create schema if not exists auth;
+  drop schema if exists auth cascade;
+  create schema auth;
   create table auth.users (id uuid primary key);
   insert into auth.users values (${quote(student)}::uuid);
   do $roles$ begin
@@ -139,6 +140,38 @@ psql(`insert into public.web_attempts (test_id, link_id, student_id) values (
 const windows = jsonRow(`select jsonb_object_agg(question_index, ended_at is not null)::text
   from public.web_strict_question_windows where link_id = ${quote(linkId)}::uuid;`);
 assert.deepEqual(windows, { "0": true, "1": true }, "submission closes every remaining strict window");
+
+// Per-question timer: a student who has answered may move on early (no going
+// back), and an answer to a question whose own time has run out is refused.
+// Found in review: refusing an early advance left the "Далее" button inert and
+// could strand a student whose phone clock ran slightly ahead of the server.
+const timedTest = uuid();
+const timedLink = uuid();
+psql(`
+  insert into public.web_tests values (${quote(timedTest)}::uuid, ${quote(owner)}::uuid, 'published');
+  insert into public.web_share_links values (
+    ${quote(timedLink)}::uuid, ${quote(timedTest)}::uuid, ${quote(owner)}::uuid,
+    ${json({ strict_mode: true, timer_minutes: 0, question_seconds: 60, leave_limit: null })}, true
+  );
+  insert into public.web_drafts (link_id, student_id) values (${quote(timedLink)}::uuid, ${quote(student)}::uuid);
+`);
+const callTimed = (fn, extra = "") => jsonRow(`select public.${fn}(
+  ${quote(timedLink)}::uuid, ${quote(timedTest)}::uuid, ${quote(student)}::uuid${extra}
+)::text;`);
+assert.equal(callTimed("start_or_load_web_strict_attempt", `, ${json(questionIds)}`).status, "ready");
+assert.equal(callTimed("save_web_strict_answer_if_open", `, 'question-one', ${json("quick answer")}`).status, "saved");
+const early = callTimed("advance_web_strict_question");
+assert.equal(early.status, "advanced", "moving on before the question timer ends must be allowed");
+assert.equal(early.current_index, 1);
+assert.equal(callTimed("save_web_strict_answer_if_open", `, 'question-one', ${json("changed later")}`).status, "wrong_question",
+  "an earlier question stays closed after moving on");
+psql(`update public.web_strict_attempt_state set question_started_at = clock_timestamp() - interval '61 seconds'
+  where link_id = ${quote(timedLink)}::uuid;`);
+assert.equal(callTimed("save_web_strict_answer_if_open", `, 'question-two', ${json("too late")}`).status, "question_expired");
+assert.equal(callTimed("advance_web_strict_question").status, "finished");
+assert.deepEqual(jsonRow(`select answers::text from public.web_drafts where link_id = ${quote(timedLink)}::uuid;`), {
+  "question-one": "quick answer",
+});
 
 assert.equal(psql("select has_function_privilege('anon', 'public.save_web_strict_answer_if_open(uuid,uuid,uuid,text,jsonb)', 'execute');")[0], "f");
 assert.equal(psql("select has_function_privilege('authenticated', 'public.advance_web_strict_question(uuid,uuid,uuid)', 'execute');")[0], "f");

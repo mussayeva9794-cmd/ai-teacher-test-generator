@@ -277,9 +277,9 @@ begin
      )) then
     return jsonb_build_object('status', 'expired');
   end if;
-  if v_question_seconds > 0 and clock_timestamp() < v_question_started_at + make_interval(secs => v_question_seconds) then
-    return jsonb_build_object('status', 'not_ready', 'current_index', v_index, 'question_started_at', v_question_started_at, 'server_now', clock_timestamp());
-  end if;
+  -- Moving on early is always allowed: the current question closes for good
+  -- (no going back), so it gives no advantage. Refusing it left "Далее" inert
+  -- and could strand a student whose clock ran ahead of the server's.
 
   v_now := clock_timestamp();
   update public.web_strict_question_windows

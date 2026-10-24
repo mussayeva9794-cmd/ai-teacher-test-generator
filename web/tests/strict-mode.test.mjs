@@ -93,7 +93,9 @@ test("strict answers and advancement are server-authoritative", () => {
   assert.match(strictMigration, /save_web_strict_answer_if_open/);
   assert.match(strictMigration, /advance_web_strict_question/);
   assert.match(strictMigration, /v_ids ->> v_index is distinct from p_question_id/);
-  assert.match(strictMigration, /clock_timestamp\(\) < v_question_started_at/);
+  // Answers after a question's own time are refused; moving on early is allowed.
+  assert.match(strictMigration, /clock_timestamp\(\) >= v_question_started_at \+ make_interval\(secs => v_question_seconds\)[\s\S]*?'question_expired'/);
+  assert.doesNotMatch(strictMigration, /'not_ready'/);
 });
 
 test("teacher results read signals through an ownership-checked, failure-tolerant summary", () => {
