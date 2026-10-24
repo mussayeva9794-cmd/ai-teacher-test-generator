@@ -9,12 +9,21 @@ export type Question = {
   correct_answer: string;
   explanation: string;
   skill_tag: string;
+  source_reference?: string;
+};
+
+export type TestSource = {
+  label: string;
+  pages?: string;
+  url?: string;
 };
 
 export type TestVariant = {
   title: string;
   instructions: string;
   questions: Question[];
+  // Stored in the variant JSON so existing database rows remain compatible.
+  sources?: TestSource[];
 };
 
 export type ShareSettings = {
@@ -24,6 +33,12 @@ export type ShareSettings = {
   one_question_at_a_time: boolean;
   randomize: boolean;
   reveal_score: boolean;
+  // Strict mode: hide questions when the page loses focus, block copy/paste,
+  // auto-submit after more than `leave_limit` leaves (null = never) and give
+  // each question `question_seconds` (0 = no per-question limit).
+  strict_mode: boolean;
+  leave_limit: number | null;
+  question_seconds: number;
 };
 
 export type ClassRow = {

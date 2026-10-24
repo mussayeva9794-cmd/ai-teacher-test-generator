@@ -2,6 +2,7 @@ import type { NextRequest } from "next/server";
 import { actorFromRequest, jsonError } from "@/lib/auth";
 import { personalizedVariant, studentVariant } from "@/lib/assessment";
 import { attemptWindowExpired } from "@/lib/attempt-window";
+import { leaveLimitReached, loadIntegrity } from "@/lib/integrity-server";
 import { shareContext } from "@/lib/share";
 
 export async function GET(request: NextRequest, { params }: { params: Promise<{ token: string }> }) {
@@ -51,10 +52,24 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     closesAt = settings.deadline_at;
   }
   const expired = attemptWindowExpired(draft.started_at, settings.timer_minutes, settings.deadline_at);
+  const integrity = settings.strict_mode ? await loadIntegrity(admin, link.id, actor.id) : null;
   return Response.json({
     submitted: false, title: test.title, topic: test.topic, variant_name: link.variant_name,
     variant: studentVariant(personalizedVariant(variant, token, actor.id, settings.randomize)),
-    settings: { one_question_at_a_time: settings.one_question_at_a_time, reveal_score: settings.reveal_score },
+    settings: {
+      one_question_at_a_time: settings.one_question_at_a_time, reveal_score: settings.reveal_score,
+      strict_mode: settings.strict_mode, leave_limit: settings.leave_limit, question_seconds: settings.question_seconds,
+    },
     answers: draft.answers || {}, closes_at: closesAt, saved_at: draft.updated_at, expired,
+    ...(settings.strict_mode ? {
+      // Rendered as a watermark so a leaked screenshot identifies its source.
+      student_label: [actor.name, actor.email].filter(Boolean).join(" · "),
+      integrity: {
+        leaves: integrity?.leaves ?? 0,
+        locked: leaveLimitReached(settings, integrity?.leaves ?? 0),
+        question_started: integrity?.question_started ?? {},
+      },
+      server_now: new Date().toISOString(),
+    } : {}),
   });
 }

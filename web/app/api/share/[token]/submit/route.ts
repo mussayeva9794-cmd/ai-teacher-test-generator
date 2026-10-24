@@ -1,6 +1,7 @@
 import type { NextRequest } from "next/server";
 import { actorFromRequest, jsonError } from "@/lib/auth";
 import { grade, personalizedVariant } from "@/lib/assessment";
+import { enforceQuestionWindows, leaveLimitReached, loadIntegrity } from "@/lib/integrity-server";
 import { shareContext } from "@/lib/share";
 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ token: string }> }) {
@@ -21,7 +22,10 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   const isAnswersObject = (value: unknown): value is Record<string, unknown> =>
     Boolean(value) && typeof value === "object" && !Array.isArray(value) &&
     JSON.stringify(value).length <= 50000;
-  const currentAnswers = isAnswersObject(body.answers)
+  const integrity = settings.strict_mode ? await loadIntegrity(admin, link.id, actor.id) : null;
+  // After too many leaves only the answers saved before locking count.
+  const strictLocked = Boolean(integrity && leaveLimitReached(settings, integrity.leaves));
+  const currentAnswers = isAnswersObject(body.answers) && !strictLocked
     ? Object.fromEntries(Object.entries(body.answers).filter(([id]) => allowedIds.has(id)))
     : null;
 
@@ -35,7 +39,10 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     if (!isAnswersObject(draft.answers)) return jsonError("The saved draft is invalid.", 503);
 
     const savedAnswers = Object.fromEntries(Object.entries(draft.answers).filter(([id]) => allowedIds.has(id)));
-    const currentResult = currentAnswers ? grade(ordered, currentAnswers) : null;
+    const submittedAnswers = currentAnswers && integrity && settings.question_seconds > 0
+      ? enforceQuestionWindows(currentAnswers, savedAnswers, integrity.question_started, settings.question_seconds, Date.now())
+      : currentAnswers;
+    const currentResult = submittedAnswers ? grade(ordered, submittedAnswers) : null;
     const savedResult = grade(ordered, savedAnswers);
     const { data, error } = await admin.rpc("finalize_web_attempt", {
       p_link_id: link.id,
@@ -43,7 +50,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       p_student_id: actor.id,
       p_expected_draft_updated_at: draft.updated_at,
       p_expected_draft_answers: draft.answers,
-      p_current_answers: currentAnswers,
+      p_current_answers: submittedAnswers,
       p_current_percentage: currentResult?.percentage ?? null,
       p_current_result: currentResult,
       p_saved_answers: savedAnswers,
@@ -66,10 +73,17 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     if (finalized?.status !== "submitted") return jsonError("Submission failed. Your draft remains available; please retry.", 503);
 
     await admin.from("web_drafts").delete().eq("link_id", link.id).eq("student_id", actor.id);
+    if (strictLocked) {
+      const { error: eventError } = await admin.from("web_attempt_events").insert({
+        link_id: link.id, test_id: test.id, student_id: actor.id, kind: "auto_submit", question_id: null,
+      });
+      if (eventError) console.error("Integrity event insert failed", { code: eventError.code });
+    }
     return Response.json({
       submitted: true,
       percentage: settings.reveal_score ? finalized.percentage ?? null : null,
       expired: Boolean(finalized.expired),
+      locked: strictLocked,
     });
   }
 
