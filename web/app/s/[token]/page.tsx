@@ -266,7 +266,8 @@ export default function StudentPage() {
       }
       const result = await api<StrictNextResponse>(`/api/share/${token}/next`, { method: "POST", body: "{}" });
       if (result.expired) { void finish(true); return; }
-      if (result.finished) { void finish(); return; }
+      // Reaching the end because the last question's time ran out is a timeout, not a manual submit.
+      if (result.finished) { void finish(allowExpiredUnsavedAnswer); return; }
       if (result.ready && result.question && typeof result.current_index === "number" && Number.isInteger(result.current_index) && typeof result.question_started_at === "string") {
         if (result.server_now) clockOffset.current = Date.parse(result.server_now) - Date.now();
         setStrictIndex(result.current_index);
