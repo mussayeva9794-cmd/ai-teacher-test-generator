@@ -158,6 +158,14 @@ test("a reloaded attempt resumes at the last started question, never an earlier 
   assert.deepEqual(resumeQuestionIndex(ids, { q1: "2026-10-24T09:00:00Z", q2: "2026-10-24T09:01:00Z" }, 0, now), { index: 1, finished: false }, "no per-question limit");
 });
 
+test("leave handling stays fast: parallel reads, one write, functions next to the database", () => {
+  assert.match(eventsRoute, /await Promise\.all\(\[\s*admin\.from\("web_attempts"\)[\s\S]*?loadIntegrity\(admin, link\.id, actor\.id\),\s*\]\)/);
+  assert.equal(eventsRoute.match(/loadIntegrity\(/g).length, 1, "no second reload after inserting the event");
+  assert.match(studentPage, /setLeaves\(current => current \+ 1\)/);
+  const vercel = JSON.parse(read("../vercel.json"));
+  assert.deepEqual(vercel.regions, ["sin1"], "Supabase runs in ap-southeast-1 (Singapore)");
+});
+
 test("the events API finalizes on the server when a leave crosses the limit", () => {
   assert.match(eventsRoute, /locked && event\.kind === "leave"\s*\? await finalizeLockedAttempt\(/);
   assert.match(studentPage, /if \(awayRef\.current \|\| timeoutSubmissionStarted\.current\) return;/);

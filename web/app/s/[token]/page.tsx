@@ -217,6 +217,8 @@ export default function StudentPage() {
       // Once the attempt is being submitted, further leaves change nothing.
       if (awayRef.current || timeoutSubmissionStarted.current) return;
       awayRef.current = true; setAway(true);
+      // Count it on screen at once; the server's number replaces this on reply.
+      setLeaves(current => current + 1);
       void sendEvent("leave");
     };
     const back = () => {
