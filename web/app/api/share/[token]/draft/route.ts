@@ -1,6 +1,5 @@
 import type { NextRequest } from "next/server";
 import { actorFromRequest, jsonError } from "@/lib/auth";
-import { enforceQuestionWindows, leaveLimitReached, loadIntegrity } from "@/lib/integrity-server";
 import { shareContext } from "@/lib/share";
 
 export async function PUT(request: NextRequest, { params }: { params: Promise<{ token: string }> }) {
@@ -14,38 +13,41 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
     .eq("test_id", test.id).eq("student_id", actor.id).maybeSingle();
   if (priorError) return jsonError("Could not check your submission status.", 503);
   if (prior) return jsonError("This test was already submitted.", 409);
-  let body: { answers?: unknown };
+  let body: { answers?: unknown; question_id?: unknown; answer?: unknown };
   try { body = await request.json(); } catch { return jsonError("Invalid answers."); }
+  const { settings } = context;
+  if (settings.strict_mode) {
+    if (typeof body.question_id !== "string" || !body.question_id || body.question_id.length > 100 ||
+        !Object.prototype.hasOwnProperty.call(body, "answer") || JSON.stringify(body.answer).length > 20000) {
+      return jsonError("Invalid strict answer.");
+    }
+    const { data, error } = await admin.rpc("save_web_strict_answer_if_open", {
+      p_link_id: link.id,
+      p_test_id: test.id,
+      p_student_id: actor.id,
+      p_question_id: body.question_id,
+      p_answer: body.answer,
+    });
+    if (error) {
+      console.error("Strict draft save failed", { code: error.code });
+      return jsonError("Draft could not be saved. Please retry.", 503);
+    }
+    const saved = data as { status?: string; saved_at?: string } | null;
+    if (saved?.status === "saved") return Response.json({ saved_at: saved.saved_at || new Date().toISOString() });
+    if (saved?.status === "question_expired" || saved?.status === "finished") {
+      return jsonError("This question is no longer open; the last saved answer was kept.", 403);
+    }
+    if (saved?.status === "wrong_question") return jsonError("This question is not currently open.", 409);
+    if (saved?.status === "expired") return jsonError("The attempt window has ended; the last saved draft was kept.", 403);
+    if (saved?.status === "submitted") return jsonError("This test was already submitted.", 409);
+    if (saved?.status === "missing") return jsonError("Open the test before saving answers.", 409);
+    if (saved?.status === "unavailable") return jsonError("This test link is unavailable.", 404);
+    return jsonError("Draft could not be saved. Please retry.", 503);
+  }
   if (!body.answers || typeof body.answers !== "object" || Array.isArray(body.answers) ||
       JSON.stringify(body.answers).length > 50000) return jsonError("Invalid answers.");
   const allowedIds = new Set(context.variant.questions.map((q) => q.id));
-  let answers = Object.fromEntries(Object.entries(body.answers).filter(([id]) => allowedIds.has(id)));
-  const { settings } = context;
-  if (settings.strict_mode) {
-    const integrity = await loadIntegrity(admin, link.id, actor.id);
-    if (integrity && leaveLimitReached(settings, integrity.leaves)) {
-      return jsonError("The test is locked after leaving the page; your last saved answers will be submitted.", 423);
-    }
-    if (integrity && settings.question_seconds > 0) {
-      const { data: current } = await admin.from("web_drafts").select("answers")
-        .eq("link_id", link.id).eq("student_id", actor.id).maybeSingle();
-      const previous = current?.answers && typeof current.answers === "object" && !Array.isArray(current.answers)
-        ? current.answers as Record<string, unknown> : {};
-      // A lost "question shown" request must not discard a real answer: start
-      // that question's window now instead.
-      const unstarted = Object.keys(answers).filter((id) =>
-        !integrity.question_started[id] && JSON.stringify(answers[id]) !== JSON.stringify(previous[id]));
-      if (unstarted.length) {
-        const { error: startError } = await admin.from("web_attempt_events").insert(unstarted.map((id) => ({
-          link_id: link.id, test_id: test.id, student_id: actor.id, kind: "question_shown", question_id: id,
-        })));
-        if (startError) console.error("Integrity event insert failed", { code: startError.code });
-        const startedAt = new Date().toISOString();
-        for (const id of unstarted) integrity.question_started[id] = startedAt;
-      }
-      answers = enforceQuestionWindows(answers, previous, integrity.question_started, settings.question_seconds, Date.now());
-    }
-  }
+  const answers = Object.fromEntries(Object.entries(body.answers).filter(([id]) => allowedIds.has(id)));
   const { data: status, error } = await admin.rpc("save_web_draft_if_open", {
     p_link_id: link.id,
     p_test_id: test.id,

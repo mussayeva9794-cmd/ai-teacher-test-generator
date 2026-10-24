@@ -2,9 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import {
-  enforceQuestionWindows, leaveLimitReached, parseClientEvent, questionWindowClosed, resumeQuestionIndex, summarizeIntegrity, QUESTION_GRACE_MS,
-} from "../lib/integrity.ts";
+import { leaveLimitReached, parseClientEvent, summarizeIntegrity } from "../lib/integrity.ts";
 import { parseSettings } from "../lib/assessment.ts";
 
 const read = (path) => readFileSync(fileURLToPath(new URL(path, import.meta.url)), "utf8");
@@ -16,6 +14,7 @@ const attemptsRoute = read("../app/api/tests/[id]/attempts/route.ts");
 const studentPage = read("../app/s/[token]/page.tsx");
 const teacherPage = read("../app/tests/[id]/page.tsx");
 const migration = read("../supabase_attempt_integrity.sql");
+const strictMigration = read("../supabase_server_strict_progress.sql");
 
 test("strict settings default safely and force one question at a time", () => {
   const legacy = parseSettings({ timer_minutes: 10 });
@@ -44,7 +43,7 @@ test("the leave limit counts allowed leaves and only applies in strict mode", ()
   assert.equal(leaveLimitReached({ strict_mode: false, leave_limit: 0 }, 50), false);
 });
 
-test("client events are whitelisted and question starts must name a real question", () => {
+test("legacy event parsing is strict and the server rejects browser-owned question starts", () => {
   const ids = new Set(["q1", "q2"]);
   assert.deepEqual(parseClientEvent({ kind: "leave", question_id: "ignored" }, ids), { kind: "leave", question_id: null });
   assert.deepEqual(parseClientEvent({ kind: "question_shown", question_id: "q2" }, ids), { kind: "question_shown", question_id: "q2" });
@@ -53,6 +52,7 @@ test("client events are whitelisted and question starts must name a real questio
   assert.equal(parseClientEvent({ kind: "delete_attempt" }, ids), null);
   assert.equal(parseClientEvent(["leave"], ids), null);
   assert.equal(parseClientEvent(null, ids), null);
+  assert.match(eventsRoute, /event\.kind === "question_shown"/);
 });
 
 test("integrity summary counts signals and keeps the earliest start of each question", () => {
@@ -72,41 +72,28 @@ test("integrity summary counts signals and keeps the earliest start of each ques
   assert.deepEqual(summary.question_started, { q1: "2026-10-24T10:00:00Z" });
 });
 
-test("closed or never-shown questions keep their saved answers", () => {
-  const start = Date.parse("2026-10-24T10:00:00Z");
-  const started = { q1: "2026-10-24T10:00:00Z", q2: "2026-10-24T10:01:00Z" };
-  const now = start + 61_000 + QUESTION_GRACE_MS; // q1 closed (60 s), q2 open
-  const result = enforceQuestionWindows(
-    { q1: "changed", q2: "new", q3: "unseen" },
-    { q1: "saved" },
-    started, 60, now,
-  );
-  assert.deepEqual(result, { q1: "saved", q2: "new" });
-  assert.deepEqual(enforceQuestionWindows({ q1: "x" }, {}, {}, 0, now), { q1: "x" }, "no per-question limit means no filtering");
-  assert.equal(questionWindowClosed(started.q1, 60, start + 59_000), false);
-  assert.equal(questionWindowClosed(started.q1, 60, start + 60_000), true);
-  assert.equal(questionWindowClosed(undefined, 60, start + 999_999), false);
-});
-
-test("the events API requires a strict, unsubmitted attempt and caps stored events", () => {
+test("the events API delegates atomic attempt and cap checks to the database", () => {
   assert.match(eventsRoute, /const context = await shareContext\(token, actor\)/);
   assert.match(eventsRoute, /if \(!settings\.strict_mode\) return jsonError/);
-  assert.match(eventsRoute, /from\("web_attempts"\)[\s\S]*?if \(prior\) return jsonError\("This test was already submitted\.", 409\)/);
-  assert.match(eventsRoute, /before\.events >= MAX_EVENTS_PER_ATTEMPT/);
-  assert.match(eventsRoute, /duplicateStart/);
+  assert.match(eventsRoute, /record_web_strict_event/);
+  assert.match(eventsRoute, /event\.kind === "question_shown"/);
+  assert.match(strictMigration, /perform pg_advisory_xact_lock/);
+  assert.match(strictMigration, /if v_events >= 1000/);
+  assert.match(strictMigration, /not exists \(select 1 from public\.web_drafts/);
 });
 
-test("save and submit enforce the leave lock and per-question windows on the server", () => {
-  assert.match(draftRoute, /leaveLimitReached\(settings, integrity\.leaves\)[\s\S]*?423/);
-  assert.match(draftRoute, /enforceQuestionWindows\(answers, previous, integrity\.question_started/);
-  assert.match(draftRoute, /const unstarted = Object\.keys\(answers\)[\s\S]*?kind: "question_shown"[\s\S]*?integrity\.question_started\[id\] = startedAt/,
-    "a lost start event starts the window on first answer instead of dropping it");
-  assert.match(submitRoute, /isAnswersObject\(body\.answers\) && !strictLocked/);
-  assert.match(submitRoute, /enforceQuestionWindows\(currentAnswers, savedAnswers, integrity\.question_started/);
+test("strict answers and advancement are server-authoritative", () => {
+  assert.match(draftRoute, /save_web_strict_answer_if_open/);
+  assert.match(draftRoute, /question_id/);
+  assert.match(submitRoute, /!settings\.strict_mode && isAnswersObject\(body\.answers\)/);
   assert.match(submitRoute, /p_current_answers: submittedAnswers/);
   assert.match(submitRoute, /kind: "auto_submit"/);
-  assert.match(shareRoute, /student_label:/);
-  assert.match(shareRoute, /settings\.strict_mode \? await loadIntegrity/);
+  assert.match(shareRoute, /start_or_load_web_strict_attempt/);
+  assert.match(shareRoute, /Future questions never leave the server in strict mode/);
+  assert.match(strictMigration, /save_web_strict_answer_if_open/);
+  assert.match(strictMigration, /advance_web_strict_question/);
+  assert.match(strictMigration, /v_ids ->> v_index is distinct from p_question_id/);
+  assert.match(strictMigration, /clock_timestamp\(\) < v_question_started_at/);
 });
 
 test("teacher results read signals through an ownership-checked, failure-tolerant summary", () => {
@@ -116,13 +103,16 @@ test("teacher results read signals through an ownership-checked, failure-toleran
   assert.match(teacherPage, /"Уходов со страницы", "Вне теста \(с\)", "Вставок", "Копирований", "Автосдача"/);
 });
 
-test("the student page hides questions on leave, blocks clipboard, watermarks, and resumes timers", () => {
+test("the student page hides questions on leave, blocks clipboard, and receives only server-selected questions", () => {
   assert.match(studentPage, /document\.addEventListener\("visibilitychange", onVisibility\)/);
   assert.match(studentPage, /window\.addEventListener\("blur", leave\)/);
   assert.match(studentPage, /strict && away \?/);
   assert.match(studentPage, /onPaste=\{strict \? e => blockClipboard\(e, "paste"\)/);
   assert.match(studentPage, /className="strict-watermark" aria-hidden="true"/);
-  assert.match(studentPage, /resumeQuestionIndex\(result\.variant\.questions\.map\(q => q\.id\), result\.integrity\.question_started/);
+  assert.match(studentPage, /result\.strict_progress\?\.current_index/);
+  assert.match(studentPage, /advanceStrictQuestion/);
+  assert.match(studentPage, /api<StrictNextResponse>\(`\/api\/share\/\$\{token\}\/next`/);
+  assert.match(studentPage, /advanceStrictQuestion\(true\)/, "a closed question advances using the last saved draft");
   assert.match(studentPage, /keepalive: true/);
 });
 
@@ -136,31 +126,21 @@ test("the integrity table is service-role only and the migration is additive", (
   assert.doesNotMatch(statements, /alter table public\.web_(attempts|drafts|share_links|tests)\b/);
 });
 
-test("moving on closes the earlier question on the server even inside its own window", () => {
-  const start = Date.parse("2026-10-24T10:00:00Z");
-  const started = { q1: "2026-10-24T10:00:00Z", q2: "2026-10-24T10:00:20Z" };
-  // 30 s after q1 started: q1's 90 s window is still running, but q2 is newer.
-  const result = enforceQuestionWindows({ q1: "changed later", q2: "fresh" }, { q1: "first" }, started, 90, start + 30_000);
-  assert.deepEqual(result, { q1: "first", q2: "fresh" });
-  // Two questions started in the same save (lost start events) both stay editable.
-  const same = { q1: "2026-10-24T10:00:00Z", q2: "2026-10-24T10:00:00Z" };
-  assert.deepEqual(enforceQuestionWindows({ q1: "a", q2: "b" }, {}, same, 90, start + 1000), { q1: "a", q2: "b" });
+test("server strict migration stores ordered windows and reports their final durations", () => {
+  assert.match(strictMigration, /create table if not exists public\.web_strict_attempt_state/);
+  assert.match(strictMigration, /create table if not exists public\.web_strict_question_windows/);
+  assert.match(strictMigration, /question_ids jsonb not null/);
+  assert.match(strictMigration, /question_started_at timestamptz not null/);
+  assert.match(strictMigration, /web_close_strict_question_window_after_submit/);
+  assert.match(strictMigration, /revoke all on function public\.web_close_strict_question_window\(\)/);
+  assert.match(strictMigration, /coalesce\(w\.ended_at, a\.submitted_at, w\.started_at\)/);
+  assert.match(strictMigration, /legacy_question_totals/, "older strict attempts retain their event-derived timing data");
 });
 
-test("a reloaded attempt resumes at the last started question, never an earlier one", () => {
-  const ids = ["q1", "q2", "q3"];
-  const now = Date.parse("2026-10-24T10:00:40Z");
-  // Found on a phone: the student had moved to q2, the tab reloaded and showed q1 again.
-  assert.deepEqual(resumeQuestionIndex(ids, { q1: "2026-10-24T10:00:00Z", q2: "2026-10-24T10:00:18Z" }, 90, now), { index: 1, finished: false });
-  assert.deepEqual(resumeQuestionIndex(ids, {}, 90, now), { index: 0, finished: false });
-  assert.deepEqual(resumeQuestionIndex(ids, { q1: "2026-10-24T09:58:00Z" }, 90, now), { index: 1, finished: false }, "closed question moves on");
-  assert.deepEqual(resumeQuestionIndex(ids, { q1: "2026-10-24T09:50:00Z", q2: "2026-10-24T09:52:00Z", q3: "2026-10-24T09:54:00Z" }, 90, now), { index: 2, finished: true });
-  assert.deepEqual(resumeQuestionIndex(ids, { q1: "2026-10-24T09:00:00Z", q2: "2026-10-24T09:01:00Z" }, 0, now), { index: 1, finished: false }, "no per-question limit");
-});
-
-test("leave handling stays fast: parallel reads, one write, functions next to the database", () => {
-  assert.match(eventsRoute, /await Promise\.all\(\[\s*admin\.from\("web_attempts"\)[\s\S]*?loadIntegrity\(admin, link\.id, actor\.id\),\s*\]\)/);
-  assert.equal(eventsRoute.match(/loadIntegrity\(/g).length, 1, "no second reload after inserting the event");
+test("leave handling uses the same database lock as strict saves", () => {
+  assert.match(eventsRoute, /record_web_strict_event/);
+  assert.match(strictMigration, /record_web_strict_event/);
+  assert.match(strictMigration, /perform pg_advisory_xact_lock/);
   assert.match(studentPage, /setLeaves\(current => current \+ 1\)/);
   const vercel = JSON.parse(read("../vercel.json"));
   assert.deepEqual(vercel.regions, ["sin1"], "Supabase runs in ap-southeast-1 (Singapore)");
@@ -169,5 +149,5 @@ test("leave handling stays fast: parallel reads, one write, functions next to th
 test("the events API finalizes on the server when a leave crosses the limit", () => {
   assert.match(eventsRoute, /locked && event\.kind === "leave"\s*\? await finalizeLockedAttempt\(/);
   assert.match(studentPage, /if \(awayRef\.current \|\| timeoutSubmissionStarted\.current\) return;/);
-  assert.match(studentPage, /resumeQuestionIndex\(/);
+  assert.match(studentPage, /strict_progress/);
 });
