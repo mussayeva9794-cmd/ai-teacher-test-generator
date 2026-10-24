@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, type ClipboardEvent, type SyntheticEvent }
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { api } from "@/lib/client";
-import { questionWindowClosed, type ClientEventKind } from "@/lib/integrity";
+import { resumeQuestionIndex, type ClientEventKind } from "@/lib/integrity";
 import { browserClient } from "@/lib/supabase";
 import type { Question } from "@/lib/types";
 
@@ -21,7 +21,7 @@ type StudentTest = {
   integrity?: { leaves: number; locked: boolean; question_started: Record<string, string> };
   server_now?: string;
 };
-type IntegrityResponse = { leaves: number; locked: boolean; question_started: Record<string, string>; server_now: string };
+type IntegrityResponse = { leaves: number; locked: boolean; submitted?: boolean; question_started: Record<string, string>; server_now: string };
 
 export default function StudentPage() {
   const { token } = useParams<{ token: string }>();
@@ -52,6 +52,7 @@ export default function StudentPage() {
   const timeoutSubmissionStarted = useRef(false);
   const awayRef = useRef(false);
   const clockOffset = useRef(0);
+  const resumeFinished = useRef(false);
   const lastClipboardEvent = useRef<Record<"copy" | "paste", number>>({ copy: 0, paste: 0 });
 
   const strict = Boolean(test?.settings.strict_mode);
@@ -74,13 +75,13 @@ export default function StudentPage() {
           if (result.server_now) clockOffset.current = Date.parse(result.server_now) - Date.now();
           setLeaves(result.integrity.leaves);
           setQuestionStarted(result.integrity.question_started);
-          // Resume at the first question whose own time has not run out, so a
-          // reload cannot reopen a closed question or restart its timer.
-          const serverNow = Date.now() + clockOffset.current;
-          const resume = result.variant.questions.findIndex(q =>
-            !questionWindowClosed(result.integrity!.question_started[q.id], result.settings.question_seconds || 0, serverNow));
-          setIndex(resume === -1 ? Math.max(0, result.variant.questions.length - 1) : resume);
-          if (result.integrity.locked || resume === -1) timeoutSubmissionStarted.current = true;
+          // Resume where the student was: a reload (phones often reload a
+          // backgrounded tab) cannot reopen an earlier question or restart a timer.
+          const resume = resumeQuestionIndex(result.variant.questions.map(q => q.id), result.integrity.question_started,
+            result.settings.question_seconds || 0, Date.now() + clockOffset.current);
+          setIndex(resume.index);
+          resumeFinished.current = resume.finished;
+          if (result.integrity.locked || resume.finished) timeoutSubmissionStarted.current = true;
           if (result.integrity.locked) setLockedSubmission(true);
         }
         setTest(result); setAnswers(result.answers || {}); setStatus("Сохранено");
@@ -186,7 +187,7 @@ export default function StudentPage() {
   // Locked or fully timed-out strict attempts detected on load submit at once.
   useEffect(() => {
     if (!test || submitted || !strict || !timeoutSubmissionStarted.current || busy) return;
-    if (lockedSubmission || test.variant.questions.every(q => questionWindowClosed(questionStarted[q.id], questionSeconds, Date.now() + clockOffset.current))) {
+    if (lockedSubmission || resumeFinished.current) {
       void finish(!lockedSubmission, lockedSubmission);
     }
   }, [test]);
@@ -213,7 +214,8 @@ export default function StudentPage() {
   useEffect(() => {
     if (!strict || !test || submitted) return;
     const leave = () => {
-      if (awayRef.current) return;
+      // Once the attempt is being submitted, further leaves change nothing.
+      if (awayRef.current || timeoutSubmissionStarted.current) return;
       awayRef.current = true; setAway(true);
       void sendEvent("leave");
     };
@@ -283,7 +285,7 @@ export default function StudentPage() {
   const watermark = test?.student_label || name;
   return <div className="student-shell"><header className="topbar"><Link className="brand" href="/"><span className="brand-mark">A</span> AI Teacher</Link><nav className="navlinks"><button className="btn ghost" disabled={busy} onClick={() => void signOutForNextStudent()}>Выйти / сменить аккаунт</button><span className="watermark">{name}</span></nav></header>
     {submitted ? <main className="panel student-card" style={{ marginTop: "8vh", textAlign: "center" }}><div className="metric" style={{ color: "var(--good)" }}>✓</div><h1 style={{ fontSize: "2.3rem" }}>{lockedSubmission ? "Работа отправлена автоматически" : timeExpired ? "Время вышло, работа отправлена" : "Работа отправлена"}</h1><p className="muted">{lockedSubmission ? "Вы покидали страницу теста больше, чем разрешил учитель. Учитель получил ответы, сохранённые до этого момента, и увидит отметку об автоматической отправке." : timeExpired ? "Учитель получил последний сохранённый черновик. Повторная попытка с этого аккаунта недоступна." : "Ваши ответы получил учитель. Повторная попытка с этого аккаунта недоступна."}</p>{submissionWarning && <div className="notice" role="status">Не удалось подтвердить сохранение самого последнего ответа до окончания времени. Учителю отправлен последний черновик, который успел сохраниться.</div>}{percentage !== null && <p className="metric">{percentage}%</p>}<button className="btn primary" disabled={busy} onClick={() => void signOutForNextStudent()}>Выйти и передать устройство следующему ученику</button><p className="small muted">На общем компьютере обязательно выйдите из аккаунта перед следующим учеником.</p></main> : error && !test ? <main className="panel student-card error">{error}</main> : !test ? <div className="panel">Загружаем тест...</div> : <main className={strict ? "stack strict-test" : "stack"} onCopy={strict ? e => blockClipboard(e, "copy") : undefined} onCut={strict ? e => blockClipboard(e, "copy") : undefined} onPaste={strict ? e => blockClipboard(e, "paste") : undefined} onContextMenu={strict ? preventDefault : undefined} onDragStart={strict ? preventDefault : undefined} onDrop={strict ? preventDefault : undefined}><section className="page-head"><div className="eyebrow">{test.variant_name} / {test.topic}</div><h1 style={{ fontSize: "clamp(1.8rem,5vw,3rem)" }}>{test.title}</h1><p className="muted">{test.variant.instructions}</p></section>
-      {strict && <div className="notice strict-banner" role="note"><b>Строгий режим.</b> Не уходите со страницы теста: вопрос скрывается, а учитель видит каждый уход.{test.settings.leave_limit !== null && test.settings.leave_limit !== undefined && <> Уходов: <b>{leaves}</b> из {test.settings.leave_limit} разрешённых — после этого работа отправится автоматически.</>} Копирование и вставка отключены{questionSeconds > 0 ? `, на каждый вопрос ${questionSeconds} с, вернуться к прошлым вопросам нельзя` : ""}.</div>}
+      {strict && <div className="notice strict-banner" role="note"><b>Строгий режим.</b> Не уходите со страницы теста: вопрос скрывается, а учитель видит каждый уход.{test.settings.leave_limit !== null && test.settings.leave_limit !== undefined && <> Уходов: <b>{Math.min(leaves, test.settings.leave_limit + 1)}</b> из {test.settings.leave_limit} разрешённых — после этого работа отправится автоматически.</>} Копирование и вставка отключены{questionSeconds > 0 ? `, на каждый вопрос ${questionSeconds} с, вернуться к прошлым вопросам нельзя` : ""}.</div>}
       <div className="row small muted"><span>{complete} из {questions.length} ответов · {status}</span>{remaining !== null && <b style={{ color: remaining < 60 ? "var(--wine)" : "var(--ink)" }}>Осталось {Math.floor(remaining / 60)}:{String(remaining % 60).padStart(2, "0")}</b>}</div>{remaining !== null && remaining > 0 && remaining <= 15 && <div className="notice" role="status">Время заканчивается. Дождитесь надписи «Сохранено» или отправьте работу сейчас: ответ, введённый в последние секунды при медленной сети, может не успеть сохраниться.</div>}<div className="progress" role="progressbar" aria-valuenow={complete} aria-valuemax={questions.length}><span style={{ width: `${questions.length ? complete / questions.length * 100 : 0}%` }} /></div>
       {test.expired || remaining === 0 ? <div className="notice">Время вышло. Отправляем последний ответ, сохранённый на сервере…{error && <><p className="error">{error}</p><button className="btn" disabled={busy} onClick={() => void finish(true)}>Повторить отправку</button></>}</div> : strict && (lockedSubmission || timeoutSubmissionStarted.current) ? <div className="notice" role="status">Отправляем работу…{error && <><p className="error">{error}</p><button className="btn" disabled={busy} onClick={() => void finish(!lockedSubmission, lockedSubmission)}>Повторить отправку</button></>}</div> : strict && away ? <div className="panel student-card stack" role="alert"><h2>Тест скрыт</h2><p className="muted">Вы ушли со страницы теста. Вернитесь, чтобы продолжить — учитель увидит этот уход.</p></div> : <>{(test.settings.one_question_at_a_time ? [question] : questions).filter(Boolean).map((q, offset) => <section className={strict ? "panel student-card stack strict-card" : "panel student-card stack"} key={q.id}>{strict && <div className="strict-watermark" aria-hidden="true">{Array.from({ length: 18 }, (_, i) => <span key={i}>{watermark}</span>)}</div>}<div className="row"><div className="eyebrow">Вопрос {test.settings.one_question_at_a_time ? index + 1 : offset + 1} из {questions.length}</div>{questionRemaining !== null && <b className="question-timer" style={{ color: questionRemaining <= 10 ? "var(--wine)" : "var(--ink)" }}>На вопрос: {Math.floor(questionRemaining / 60)}:{String(questionRemaining % 60).padStart(2, "0")}</b>}</div><h2 className="question-title">{q.question}</h2><fieldset disabled={questionClosed} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>{q.type === "multiple_choice" || q.type === "true_false" ? <div className="stack" role="group" aria-label={`Ответ на вопрос ${index + 1}`}>{q.options?.map((option,i) => <label className="option" key={i}><input type="radio" name={`q-${q.id}`} checked={answers[q.id] === option} onChange={() => setAnswer(q, option)} />{option}</label>)}</div> : q.type === "matching" ? <div className="stack">{q.pairs?.map((pair,i) => <label className="field" key={i}>{pair.left}<input value={String((answers[q.id] as Record<string,string> | undefined)?.[pair.left] || "")} onChange={e => setAnswer(q, { ...(answers[q.id] as object || {}), [pair.left]: e.target.value })} placeholder="Введите соответствие" /></label>)}</div> : <label className="field">Ваш ответ<textarea value={String(answers[q.id] || "")} onChange={e => setAnswer(q, e.target.value)} placeholder="Введите ответ" /></label>}</fieldset></section>)}
       {test.settings.one_question_at_a_time && <div className="row">{strict && questionSeconds > 0 ? <span /> : <button className="btn" disabled={index === 0} onClick={() => setIndex(index - 1)}>← Назад</button>}{index < questions.length - 1 ? <button className="btn primary" onClick={() => setIndex(index + 1)}>Далее →</button> : <button className="btn primary" onClick={() => setConfirming(true)}>Проверить и завершить</button>}</div>}{!test.settings.one_question_at_a_time && <button className="btn primary" onClick={() => setConfirming(true)}>Проверить и завершить</button>}</>}

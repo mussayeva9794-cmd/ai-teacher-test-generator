@@ -2,6 +2,7 @@ import type { NextRequest } from "next/server";
 import { actorFromRequest, jsonError } from "@/lib/auth";
 import { leaveLimitReached, loadIntegrity, MAX_EVENTS_PER_ATTEMPT, parseClientEvent } from "@/lib/integrity-server";
 import { shareContext } from "@/lib/share";
+import { finalizeLockedAttempt } from "@/lib/strict-finalize";
 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ token: string }> }) {
   const actor = await actorFromRequest(request);
@@ -39,9 +40,15 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
   const after = duplicateStart ? before : await loadIntegrity(admin, link.id, actor.id);
   if (!after) return jsonError("Could not record the event.", 503);
+  const locked = leaveLimitReached(settings, after.leaves);
+  // Submit on the server right away; the client may never get to do it.
+  const finalized = locked && event.kind === "leave"
+    ? await finalizeLockedAttempt(admin, { linkId: link.id, testId: test.id, studentId: actor.id, token, variant, settings })
+    : null;
   return Response.json({
     leaves: after.leaves,
-    locked: leaveLimitReached(settings, after.leaves),
+    locked,
+    submitted: finalized === "submitted" || finalized === "already_submitted",
     question_started: after.question_started,
     server_now: new Date().toISOString(),
   });
