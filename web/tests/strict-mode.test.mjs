@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import {
-  enforceQuestionWindows, leaveLimitReached, parseClientEvent, questionWindowClosed, summarizeIntegrity, QUESTION_GRACE_MS,
+  enforceQuestionWindows, leaveLimitReached, parseClientEvent, questionWindowClosed, resumeQuestionIndex, summarizeIntegrity, QUESTION_GRACE_MS,
 } from "../lib/integrity.ts";
 import { parseSettings } from "../lib/assessment.ts";
 
@@ -122,7 +122,7 @@ test("the student page hides questions on leave, blocks clipboard, watermarks, a
   assert.match(studentPage, /strict && away \?/);
   assert.match(studentPage, /onPaste=\{strict \? e => blockClipboard\(e, "paste"\)/);
   assert.match(studentPage, /className="strict-watermark" aria-hidden="true"/);
-  assert.match(studentPage, /questionWindowClosed\(result\.integrity!\.question_started\[q\.id\]/);
+  assert.match(studentPage, /resumeQuestionIndex\(result\.variant\.questions\.map\(q => q\.id\), result\.integrity\.question_started/);
   assert.match(studentPage, /keepalive: true/);
 });
 
@@ -134,4 +134,32 @@ test("the integrity table is service-role only and the migration is additive", (
   const statements = migration.split("\n").filter((line) => !line.trim().startsWith("--")).join("\n");
   assert.doesNotMatch(statements, /\bdrop\s+(table|function|policy|index)\b/i, "rollback lives in comments only");
   assert.doesNotMatch(statements, /alter table public\.web_(attempts|drafts|share_links|tests)\b/);
+});
+
+test("moving on closes the earlier question on the server even inside its own window", () => {
+  const start = Date.parse("2026-10-24T10:00:00Z");
+  const started = { q1: "2026-10-24T10:00:00Z", q2: "2026-10-24T10:00:20Z" };
+  // 30 s after q1 started: q1's 90 s window is still running, but q2 is newer.
+  const result = enforceQuestionWindows({ q1: "changed later", q2: "fresh" }, { q1: "first" }, started, 90, start + 30_000);
+  assert.deepEqual(result, { q1: "first", q2: "fresh" });
+  // Two questions started in the same save (lost start events) both stay editable.
+  const same = { q1: "2026-10-24T10:00:00Z", q2: "2026-10-24T10:00:00Z" };
+  assert.deepEqual(enforceQuestionWindows({ q1: "a", q2: "b" }, {}, same, 90, start + 1000), { q1: "a", q2: "b" });
+});
+
+test("a reloaded attempt resumes at the last started question, never an earlier one", () => {
+  const ids = ["q1", "q2", "q3"];
+  const now = Date.parse("2026-10-24T10:00:40Z");
+  // Found on a phone: the student had moved to q2, the tab reloaded and showed q1 again.
+  assert.deepEqual(resumeQuestionIndex(ids, { q1: "2026-10-24T10:00:00Z", q2: "2026-10-24T10:00:18Z" }, 90, now), { index: 1, finished: false });
+  assert.deepEqual(resumeQuestionIndex(ids, {}, 90, now), { index: 0, finished: false });
+  assert.deepEqual(resumeQuestionIndex(ids, { q1: "2026-10-24T09:58:00Z" }, 90, now), { index: 1, finished: false }, "closed question moves on");
+  assert.deepEqual(resumeQuestionIndex(ids, { q1: "2026-10-24T09:50:00Z", q2: "2026-10-24T09:52:00Z", q3: "2026-10-24T09:54:00Z" }, 90, now), { index: 2, finished: true });
+  assert.deepEqual(resumeQuestionIndex(ids, { q1: "2026-10-24T09:00:00Z", q2: "2026-10-24T09:01:00Z" }, 0, now), { index: 1, finished: false }, "no per-question limit");
+});
+
+test("the events API finalizes on the server when a leave crosses the limit", () => {
+  assert.match(eventsRoute, /locked && event\.kind === "leave"\s*\? await finalizeLockedAttempt\(/);
+  assert.match(studentPage, /if \(awayRef\.current \|\| timeoutSubmissionStarted\.current\) return;/);
+  assert.match(studentPage, /resumeQuestionIndex\(/);
 });

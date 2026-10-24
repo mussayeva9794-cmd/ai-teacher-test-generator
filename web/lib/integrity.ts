@@ -61,9 +61,28 @@ export function questionWindowClosed(startedAt: string | undefined, seconds: num
 }
 
 /**
- * Keep answer changes only for questions that were shown and are still inside
- * their per-question window; everything else keeps its previously saved value.
+ * Keep answer changes only for the most recently started question while it is
+ * inside its per-question window. Earlier questions are closed once the student
+ * moves on (no going back), and unseen ones are not open yet; both keep their
+ * previously saved value.
  */
+/** Where a reloaded strict attempt continues: the last question started, or the next one once it closed. */
+export function resumeQuestionIndex(
+  questionIds: readonly string[],
+  questionStarted: Record<string, string>,
+  seconds: number,
+  now: number,
+): { index: number; finished: boolean } {
+  let latest = -1;
+  for (let i = 0; i < questionIds.length; i += 1) {
+    const start = questionStarted[questionIds[i]];
+    if (start && (latest === -1 || Date.parse(start) >= Date.parse(questionStarted[questionIds[latest]]))) latest = i;
+  }
+  if (latest === -1) return { index: 0, finished: false };
+  if (!questionWindowClosed(questionStarted[questionIds[latest]], seconds, now)) return { index: latest, finished: false };
+  return latest + 1 < questionIds.length ? { index: latest + 1, finished: false } : { index: latest, finished: true };
+}
+
 export function enforceQuestionWindows(
   next: Record<string, unknown>,
   previous: Record<string, unknown>,
@@ -72,9 +91,11 @@ export function enforceQuestionWindows(
   now: number,
 ): Record<string, unknown> {
   if (seconds <= 0) return next;
+  const latestStart = Math.max(...Object.values(questionStarted).map((value) => Date.parse(value)).filter(Number.isFinite));
   const result: Record<string, unknown> = {};
   for (const id of new Set([...Object.keys(previous), ...Object.keys(next)])) {
-    const open = Boolean(questionStarted[id]) && !questionWindowClosed(questionStarted[id], seconds, now, QUESTION_GRACE_MS);
+    const open = Boolean(questionStarted[id]) && Date.parse(questionStarted[id]) === latestStart &&
+      !questionWindowClosed(questionStarted[id], seconds, now, QUESTION_GRACE_MS);
     const value = open ? next[id] : previous[id];
     if (value !== undefined) result[id] = value;
   }
