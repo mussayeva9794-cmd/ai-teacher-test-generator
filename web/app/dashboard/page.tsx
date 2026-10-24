@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { EmptyIllustration } from "../illustrations";
+import { TeacherHeader } from "../teacher-nav";
+import { distinctTopic, languageLabel } from "@/lib/labels";
 import { useRouter } from "next/navigation";
 import { browserClient } from "@/lib/supabase";
 import { api } from "@/lib/client";
@@ -36,9 +38,10 @@ export default function Dashboard() {
   }, [router]);
 
   const visible = tests.filter(test => filter === "all" || test.status === filter);
-  return <div className="wrap"><header className="topbar"><Link className="brand" href="/"><span className="brand-mark">A</span> AI Teacher</Link><nav className="navlinks">{!teacherOnly && <><Link className="btn ghost" href="/classes">Классы</Link><Link className="btn ghost" href="/create">Создать</Link></>}<button className="btn ghost" onClick={async () => { await browserClient().auth.signOut(); router.replace("/"); }}>Выйти</button></nav></header>
+  const count = (value: string) => value === "all" ? tests.length : tests.filter(test => test.status === value).length;
+  return <div className="wrap"><TeacherHeader current="tests" limited={teacherOnly} />
     <section className="page-head"><div className="eyebrow">Рабочее пространство</div><h1>Ваши тесты</h1><p className="muted">Создавайте, публикуйте и просматривайте результаты в одном месте.</p></section>
-    {!teacherOnly && <div className="toolbar"><div className="tabs">{[["all","Все"],["draft","Черновики"],["published","Активные"],["archived","Архив"]].map(([value,label]) => <button key={value} className={filter === value ? "active" : ""} onClick={() => setFilter(value)}>{label}</button>)}</div><Link className="btn primary" href="/create">+ Создать тест</Link></div>}
-    {loading ? <div className="panel">Загружаем тесты...</div> : error ? <div className="error">{error}</div> : visible.length ? <div className="grid cols-2 page-enter">{visible.map(test => <Link className="panel" href={`/tests/${test.id}`} key={test.id}><div className="row"><span className="eyebrow">{test.topic}</span><span className="pill">{test.status === "published" ? "Опубликован" : test.status === "draft" ? "Черновик" : "Архив"}</span></div><h3 style={{ marginTop: 16 }}>{test.title}</h3><p className="muted small">{test.grade_level || "Все классы"} · {test.language} · {new Date(test.created_at).toLocaleDateString("ru-RU")}</p><span style={{ color: "var(--wine)", fontWeight: 700 }}>Открыть →</span></Link>)}</div> : <div className="panel soft empty-state page-enter draw-in"><EmptyIllustration /><div><h3>Здесь пока пусто</h3><p className="muted">Создайте первый тест, затем проверьте вопросы и отправьте ученикам.</p><Link className="btn primary" href="/create">Создать первый тест</Link></div></div>}
+    {!teacherOnly && <div className="toolbar"><div className="tabs">{[["all","Все"],["draft","Черновики"],["published","Активные"],["archived","Архив"]].map(([value,label]) => <button key={value} className={filter === value ? "active" : ""} onClick={() => setFilter(value)}>{label}{!loading && <span className="tab-count">{count(value)}</span>}</button>)}</div><Link className="btn primary" href="/create">+ Создать тест</Link></div>}
+    {loading ? <div className="panel">Загружаем тесты...</div> : error ? <div className="error">{error}</div> : visible.length ? <div className="grid cols-2 page-enter">{visible.map(test => <Link className="panel" href={`/tests/${test.id}`} key={test.id}><div className="row"><span className="eyebrow">{distinctTopic(test.topic, test.title)}</span><span className="pill">{test.status === "published" ? "Опубликован" : test.status === "draft" ? "Черновик" : "Архив"}</span></div><h3 style={{ marginTop: 16 }}>{test.title}</h3><p className="muted small">{[test.grade_level, languageLabel(test.language), new Date(test.created_at).toLocaleDateString("ru-RU")].filter(Boolean).join(" · ")}</p><span style={{ color: "var(--wine)", fontWeight: 700 }}>Открыть →</span></Link>)}</div> : <div className="panel soft empty-state page-enter draw-in"><EmptyIllustration /><div><h3>Здесь пока пусто</h3><p className="muted">Создайте первый тест, затем проверьте вопросы и отправьте ученикам.</p><Link className="btn primary" href="/create">Создать первый тест</Link></div></div>}
   </div>;
 }
