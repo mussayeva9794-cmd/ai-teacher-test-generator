@@ -9,7 +9,8 @@ export const maxDuration = 300;
 export async function POST(request: NextRequest) {
   const actor = await actorFromRequest(request);
   if (!actor || actor.role !== "teacher") return jsonError("Teacher sign-in required.", 401);
-  let body: Partial<GenerateInput>;
+  // Source details arrive as flat form fields and are folded into `sources` below.
+  let body: Partial<GenerateInput> & { sourceTitle?: unknown; sourcePages?: unknown; sourceUrl?: unknown };
   try { body = await request.json(); } catch { return jsonError("Invalid request body."); }
   const topic = String(body.topic || "").trim();
   const count = Number(body.count);
