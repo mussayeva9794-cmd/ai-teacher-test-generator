@@ -133,13 +133,20 @@ export function grade(variant: TestVariant, answers: Record<string, unknown>) {
 export function parseSettings(value: unknown): ShareSettings {
   const source = value && typeof value === "object" ? value as Record<string, unknown> : {};
   const timer = Number(source.timer_minutes || 0);
+  const strict = source.strict_mode === true;
+  const leaveLimit = Math.floor(Number(source.leave_limit ?? 2));
+  const questionSeconds = Math.floor(Number(source.question_seconds || 0));
   return {
     allowed_students: Array.isArray(source.allowed_students)
       ? source.allowed_students.map((email) => String(email).trim().toLowerCase()).filter(Boolean) : [],
     deadline_at: typeof source.deadline_at === "string" && source.deadline_at ? source.deadline_at : null,
     timer_minutes: Number.isFinite(timer) ? Math.max(0, Math.min(240, Math.floor(timer))) : 0,
-    one_question_at_a_time: Boolean(source.one_question_at_a_time),
+    // Strict mode always shows one question at a time.
+    one_question_at_a_time: Boolean(source.one_question_at_a_time) || strict,
     randomize: source.randomize !== false,
     reveal_score: source.reveal_score === true,
+    strict_mode: strict,
+    leave_limit: source.leave_limit === null ? null : Number.isFinite(leaveLimit) ? Math.max(0, Math.min(5, leaveLimit)) : 2,
+    question_seconds: Number.isFinite(questionSeconds) && questionSeconds > 0 ? Math.max(15, Math.min(600, questionSeconds)) : 0,
   };
 }

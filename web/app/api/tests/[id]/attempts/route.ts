@@ -4,6 +4,11 @@ import { userClient } from "@/lib/supabase";
 import { adminClient } from "@/lib/supabase-admin";
 import { spreadsheetSafeText } from "@/lib/csv-export";
 
+type IntegrityRow = {
+  link_id: string; student_id: string; leaves: number; pastes: number; copies: number;
+  auto_submitted: boolean; away_seconds: number; question_seconds: Record<string, number>;
+};
+
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const actor = await actorFromRequest(request);
   if (!actor || actor.role !== "teacher") return jsonError("Teacher sign-in required.", 401);
@@ -19,7 +24,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     .eq("id", id).eq("owner_id", actor.id).maybeSingle();
   if (!test) return jsonError("Test not found.", 404);
   const { data: pageAttempts, error, count } = await db.from("web_attempts")
-    .select("id,student_id,variant_name,percentage,answers,result,submitted_at", { count: "exact" })
+    .select("id,link_id,student_id,variant_name,percentage,answers,result,submitted_at", { count: "exact" })
     .eq("test_id", id).order("submitted_at", { ascending: false }).order("id", { ascending: false })
     .range(requestedPage * pageSize, requestedPage * pageSize + pageSize - 1);
   if (error) return jsonError("Could not load results.", 503);
@@ -32,7 +37,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     let cursor: { submitted_at: string; id: string } | null = null;
     while (true) {
       let query = db.from("web_attempts")
-        .select("id,student_id,variant_name,percentage,answers,result,submitted_at")
+        .select("id,link_id,student_id,variant_name,percentage,answers,result,submitted_at")
         .eq("test_id", id).order("submitted_at", { ascending: false })
         .order("id", { ascending: false }).limit(1000);
       if (cursor) {
@@ -57,10 +62,24 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     if (profileError) return jsonError("Could not load student display names.", 503);
     for (const profile of profiles || []) names.set(profile.id, profile.display_name);
   }
+  // Strict-mode signals are optional: an older database without the
+  // integrity migration still returns results, just without these counters.
+  const integrity = new Map<string, IntegrityRow>();
+  if (attempts.length) {
+    const { data: integrityRows, error: integrityError } = await adminClient()
+      .rpc("web_attempt_integrity_summary", { p_test_id: id });
+    if (integrityError) console.error("Integrity summary failed", { code: integrityError.code });
+    for (const item of (integrityRows || []) as IntegrityRow[]) integrity.set(`${item.link_id}:${item.student_id}`, item);
+  }
   const rows = (attempts || []).map((row) => {
     const studentName = names.get(row.student_id) || "Student";
+    const signals = integrity.get(`${row.link_id}:${row.student_id}`);
     return {
       ...row,
+      integrity: signals ? {
+        leaves: signals.leaves, pastes: signals.pastes, copies: signals.copies, auto_submitted: signals.auto_submitted,
+        away_seconds: signals.away_seconds, question_seconds: signals.question_seconds,
+      } : null,
       student_name: studentName,
       // Keep the display name intact; exports use this spreadsheet-safe form.
       csv_student_name: spreadsheetSafeText(studentName),

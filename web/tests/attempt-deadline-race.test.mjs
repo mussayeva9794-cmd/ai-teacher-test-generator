@@ -7,6 +7,8 @@ const modules = new Map([
   ["@/lib/share", "export const shareContext = async () => globalThis.deadlineMocks.context;"],
   ["@/lib/assessment", "export const personalizedVariant = variant => variant; export const studentVariant = variant => variant; export const grade = (_variant, answers) => { if (globalThis.deadlineMocks.expireDuringGrade) globalThis.deadlineMocks.expired = true; return { percentage: answers.q1 === 'saved' ? 100 : 0 }; };"],
   ["@/lib/attempt-window", "export const attemptWindowExpired = () => false;"],
+  // These fixtures use non-strict links; strict-mode rules have their own tests.
+  ["@/lib/integrity-server", "export const loadIntegrity = async () => null; export const leaveLimitReached = () => false; export const enforceQuestionWindows = next => next;"],
 ]);
 
 registerHooks({

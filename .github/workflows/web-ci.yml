@@ -38,6 +38,11 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
+    env:
+      # Placeholder project for the build and the mocked browser tests; no real
+      # Supabase backend is contacted in CI.
+      NEXT_PUBLIC_SUPABASE_URL: https://e2e-test.supabase.co
+      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: sb_publishable_e2e_placeholder_key
     defaults:
       run:
         working-directory: web
@@ -78,7 +83,7 @@ jobs:
       - name: Install Chromium for Playwright
         run: npx playwright install --with-deps chromium
 
-      - name: Run unauthenticated smoke tests
+      - name: Run browser smoke and mocked strict-mode tests
         run: npm run test:e2e
         env:
           CI: true
