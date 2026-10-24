@@ -39,9 +39,14 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     if (!isAnswersObject(draft.answers)) return jsonError("The saved draft is invalid.", 503);
 
     const savedAnswers = Object.fromEntries(Object.entries(draft.answers).filter(([id]) => allowedIds.has(id)));
-    const submittedAnswers = currentAnswers && integrity && settings.question_seconds > 0
-      ? enforceQuestionWindows(currentAnswers, savedAnswers, integrity.question_started, settings.question_seconds, Date.now())
-      : currentAnswers;
+    // A locked strict attempt, or one whose last question timed out, submits the
+    // server-saved draft. The RPC requires current answers while the attempt
+    // window itself is still open, so pass the saved draft explicitly.
+    const submittedAnswers = settings.strict_mode && (strictLocked || !currentAnswers)
+      ? savedAnswers
+      : currentAnswers && integrity && settings.question_seconds > 0
+        ? enforceQuestionWindows(currentAnswers, savedAnswers, integrity.question_started, settings.question_seconds, Date.now())
+        : currentAnswers;
     const currentResult = submittedAnswers ? grade(ordered, submittedAnswers) : null;
     const savedResult = grade(ordered, savedAnswers);
     const { data, error } = await admin.rpc("finalize_web_attempt", {
