@@ -18,28 +18,38 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   const event = parseClientEvent(body, new Set(variant.questions.map((question) => question.id)));
   if (!event) return jsonError("Invalid event.");
 
-  const { data: prior, error: priorError } = await admin.from("web_attempts").select("id")
-    .eq("test_id", test.id).eq("student_id", actor.id).maybeSingle();
+  // Independent reads run in parallel: each database round trip is felt by the
+  // student as a delay before the leave counter updates.
+  const [{ data: prior, error: priorError }, before] = await Promise.all([
+    admin.from("web_attempts").select("id").eq("test_id", test.id).eq("student_id", actor.id).maybeSingle(),
+    loadIntegrity(admin, link.id, actor.id),
+  ]);
   if (priorError) return jsonError("Could not check your submission status.", 503);
   if (prior) return jsonError("This test was already submitted.", 409);
-
-  const before = await loadIntegrity(admin, link.id, actor.id);
   if (!before) return jsonError("Could not record the event.", 503);
   if (before.events >= MAX_EVENTS_PER_ATTEMPT) return jsonError("Too many events for this attempt.", 429);
   // Only the first display of a question starts its per-question timer.
   const duplicateStart = event.kind === "question_shown" && Boolean(before.question_started[event.question_id!]);
+  let after = before;
   if (!duplicateStart) {
-    const { error } = await admin.from("web_attempt_events").insert({
+    const { data: inserted, error } = await admin.from("web_attempt_events").insert({
       link_id: link.id, test_id: test.id, student_id: actor.id, kind: event.kind, question_id: event.question_id,
-    });
-    if (error) {
-      console.error("Integrity event insert failed", { code: error.code });
+    }).select("created_at").single();
+    if (error || !inserted) {
+      console.error("Integrity event insert failed", { code: error?.code });
       return jsonError("Could not record the event.", 503);
     }
+    after = {
+      ...before,
+      events: before.events + 1,
+      leaves: before.leaves + (event.kind === "leave" ? 1 : 0),
+      pastes: before.pastes + (event.kind === "paste" ? 1 : 0),
+      copies: before.copies + (event.kind === "copy" ? 1 : 0),
+      question_started: event.kind === "question_shown"
+        ? { ...before.question_started, [event.question_id!]: inserted.created_at as string }
+        : before.question_started,
+    };
   }
-
-  const after = duplicateStart ? before : await loadIntegrity(admin, link.id, actor.id);
-  if (!after) return jsonError("Could not record the event.", 503);
   const locked = leaveLimitReached(settings, after.leaves);
   // Submit on the server right away; the client may never get to do it.
   const finalized = locked && event.kind === "leave"

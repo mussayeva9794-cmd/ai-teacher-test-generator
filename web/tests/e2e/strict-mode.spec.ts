@@ -19,7 +19,7 @@ const questions = [
 type Settings = { leave_limit: number | null; question_seconds: number };
 type Mock = { events: { kind: string; question_id: string | null }[]; submits: unknown[]; drafts: unknown[]; virtualMs: number };
 
-async function openStrictTest(page: Page, settings: Settings, questionStarted: Record<string, string> = {}) {
+async function openStrictTest(page: Page, settings: Settings, questionStarted: Record<string, string> = {}, eventDelayMs = 0) {
   const mock: Mock = { events: [], submits: [], drafts: [], virtualMs: 0 };
   const serverNow = () => new Date(Date.now() + mock.virtualMs).toISOString();
   const started = { ...questionStarted };
@@ -47,6 +47,7 @@ async function openStrictTest(page: Page, settings: Settings, questionStarted: R
     const body = route.request().postDataJSON() as { kind: string; question_id: string | null };
     mock.events.push(body);
     if (body.kind === "question_shown" && body.question_id && !started[body.question_id]) started[body.question_id] = serverNow();
+    if (eventDelayMs) await new Promise(resolve => setTimeout(resolve, eventDelayMs));
     await route.fulfill({ json: { leaves: leaves(), locked: locked(), question_started: started, server_now: serverNow() } });
   });
   await page.route(`**/api/share/${TOKEN}/draft`, async route => {
@@ -130,4 +131,14 @@ test("reloading cannot reopen a question whose own time has run out", async ({ p
   await expect(page.getByText("Вопрос 2 из 2")).toBeVisible();
   await expect(page.getByText("Сколько будет 2 + 2?")).toHaveCount(0);
   expect(mock.submits).toEqual([]);
+});
+
+test("the leave counter updates at once, before a slow server answers", async ({ page }) => {
+  const mock = await openStrictTest(page, { leave_limit: 2, question_seconds: 0 }, {}, 4000);
+  await expect(page.getByText(/Уходов:\s*0 из 2/)).toBeVisible();
+  await page.evaluate(() => window.dispatchEvent(new Event("blur")));
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+  // The mocked server takes 4 s; the screen must not wait for it.
+  await expect(page.getByText(/Уходов:\s*1 из 2/)).toBeVisible({ timeout: 1500 });
+  await expect.poll(() => mock.events.filter(event => event.kind === "leave").length).toBe(1);
 });
