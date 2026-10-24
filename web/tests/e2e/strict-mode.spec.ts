@@ -59,7 +59,8 @@ async function openStrictTest(page: Page, settings: Settings, initial: InitialPr
   });
   await page.route(`**/api/share/${TOKEN}/submit`, async route => {
     mock.submits.push(route.request().postDataJSON());
-    await route.fulfill({ json: { submitted: true, percentage: null, expired: settings.question_seconds > 0 && !locked(), locked: locked() } });
+    // Like the real server: a per-question timeout does not expire the whole attempt window.
+    await route.fulfill({ json: { submitted: true, percentage: null, expired: false, locked: locked() } });
   });
   await page.route(`**/api/share/${TOKEN}/next`, async route => {
     if (currentIndex >= questions.length - 1) {
