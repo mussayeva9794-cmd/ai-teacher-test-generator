@@ -9,10 +9,7 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
   const context = await shareContext(token, actor);
   if ("error" in context && context.error) return jsonError(context.error, context.status);
   const { admin, link, test } = context;
-  const { data: prior, error: priorError } = await admin.from("web_attempts").select("id")
-    .eq("test_id", test.id).eq("student_id", actor.id).maybeSingle();
-  if (priorError) return jsonError("Could not check your submission status.", 503);
-  if (prior) return jsonError("This test was already submitted.", 409);
+  // Both save RPCs check for a submitted attempt under the same lock as the write.
   let body: { answers?: unknown; question_id?: unknown; answer?: unknown };
   try { body = await request.json(); } catch { return jsonError("Invalid answers."); }
   const { settings } = context;

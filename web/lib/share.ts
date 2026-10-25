@@ -23,19 +23,24 @@ export async function shareContext(token: string, actor: Actor) {
   if (linkError) return { error: "Test access is temporarily unavailable. Please retry later.", status: 503 } as const;
   if (!link || !link.is_active) return { error: "This test link is unavailable.", status: 404 } as const;
   const settings = parseSettings(link.settings);
+  // The test row does not depend on the access checks below; load it alongside
+  // them and use it only once access is granted. Promise.resolve starts the query.
+  const testQuery = Promise.resolve(admin.from("web_tests")
+    .select("id,owner_id,title,topic,language,grade_level,status,variants,created_at")
+    .eq("id", link.test_id).maybeSingle());
   if (link.class_id) {
     if (!actor.hasGoogleIdentity || !actor.googleEmail) {
       return { error: "Sign in with the verified Google account enrolled in this class.", status: 403 } as const;
     }
-    const { data: classRow, error: classError } = await admin.from("web_classes")
-      .select("id,owner_id,is_active").eq("id", link.class_id).maybeSingle();
+    const [{ data: classRow, error: classError }, { data: byStudentId, error: studentLookupError }] = await Promise.all([
+      admin.from("web_classes").select("id,owner_id,is_active").eq("id", link.class_id).maybeSingle(),
+      admin.from("web_class_members").select("id,email,student_id")
+        .eq("class_id", link.class_id).eq("student_id", actor.id).maybeSingle(),
+    ]);
     if (classError) return { error: "Could not verify class access.", status: 503 } as const;
     if (!classRow || !classRow.is_active || classRow.owner_id !== link.owner_id) {
       return { error: "This class test link is unavailable.", status: 404 } as const;
     }
-
-    const { data: byStudentId, error: studentLookupError } = await admin.from("web_class_members")
-      .select("id,email,student_id").eq("class_id", link.class_id).eq("student_id", actor.id).maybeSingle();
     if (studentLookupError) return { error: "Could not verify class access.", status: 503 } as const;
     if (byStudentId && byStudentId.email !== actor.googleEmail) {
       return { error: "This Google account does not match the class roster.", status: 403 } as const;
@@ -61,9 +66,7 @@ export async function shareContext(token: string, actor: Actor) {
   } else if (!isAllowedByEmailList(actor.email, actor.emailVerified, settings.allowed_students)) {
     return { error: "This account is not allowed to open the test.", status: 403 } as const;
   }
-  const { data: test, error: testError } = await admin.from("web_tests")
-    .select("id,owner_id,title,topic,language,grade_level,status,variants,created_at")
-    .eq("id", link.test_id).maybeSingle();
+  const { data: test, error: testError } = await testQuery;
   if (testError || !test || test.status !== "published") {
     return { error: "This test is not published.", status: 404 } as const;
   }
