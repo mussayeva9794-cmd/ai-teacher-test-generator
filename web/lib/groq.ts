@@ -16,13 +16,16 @@ export type GenerateInput = {
   sources?: TestSource[];
 };
 
+export type GroqFailureReason = "configuration" | "authentication" | "rate_limit" | "timeout" | "upstream" | "invalid_response";
+
 export class GroqGenerationError extends Error {
-  constructor(
-    public readonly reason: "configuration" | "authentication" | "rate_limit" | "timeout" | "upstream" | "invalid_response",
-    message: string,
-    public readonly upstreamStatus?: number,
-  ) {
+  public readonly reason: GroqFailureReason;
+  public readonly upstreamStatus?: number;
+
+  constructor(reason: GroqFailureReason, message: string, upstreamStatus?: number) {
     super(message);
+    this.reason = reason;
+    this.upstreamStatus = upstreamStatus;
     this.name = "GroqGenerationError";
   }
 }
@@ -140,7 +143,16 @@ function reasoningEffort(): "low" | "medium" | "high" {
   return value === "low" || value === "high" ? value : "medium";
 }
 
-async function requestVariant(input: GenerateInput, difficulty: string): Promise<TestVariant> {
+// The 120b model wrote clearly more accurate questions in staging QA; the
+// smaller model stays as a fallback when the larger one is rate limited.
+const PRIMARY_MODEL = "openai/gpt-oss-120b";
+const FALLBACK_MODEL = "openai/gpt-oss-20b";
+
+function configuredModel(): string {
+  return process.env.GROQ_MODEL?.trim() || PRIMARY_MODEL;
+}
+
+async function requestVariant(input: GenerateInput, difficulty: string, model: string): Promise<TestVariant> {
   const apiKey = process.env.GROQ_API_KEY?.replace(/\s+/g, "");
   if (!apiKey) throw new GroqGenerationError("configuration", "GROQ_API_KEY is not configured.");
   const prompt = `Create ${input.count} UNIQUE ${input.type} school questions on "${input.topic}".
@@ -161,7 +173,7 @@ the explanation states why correct_answer is right and never contradicts it. Rew
       method: "POST",
       headers: { authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
       body: JSON.stringify({
-        model: process.env.GROQ_MODEL?.trim() || "openai/gpt-oss-20b",
+        model,
         temperature: 0.35,
         max_completion_tokens: 8192,
         // "low" produced factual slips in live QA; teachers still review every question.
@@ -217,9 +229,15 @@ async function generateVariant(input: GenerateInput, difficulty: string): Promis
   let lastError: unknown;
   for (let attempt = 1; attempt <= generationAttempts(); attempt += 1) {
     try {
-      return await requestVariant(input, difficulty);
+      return await requestVariant(input, difficulty, configuredModel());
     } catch (error) {
       lastError = error;
+      const modelUnavailable = error instanceof GroqGenerationError && (error.reason === "rate_limit" ||
+        error.reason === "timeout" || (error.reason === "upstream" && error.upstreamStatus === 404));
+      if (modelUnavailable && configuredModel() !== FALLBACK_MODEL) {
+        console.warn("Groq primary model unavailable; using fallback", { difficulty, reason: error.reason });
+        return await requestVariant(input, difficulty, FALLBACK_MODEL);
+      }
       if (!(error instanceof GroqGenerationError) || error.reason !== "invalid_response") throw error;
       console.warn("Groq returned an incomplete variant", { difficulty, attempt });
     }
