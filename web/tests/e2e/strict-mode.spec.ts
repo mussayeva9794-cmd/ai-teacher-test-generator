@@ -18,11 +18,13 @@ const questions = [
 
 type Settings = { leave_limit: number | null; question_seconds: number };
 type Mock = { events: { kind: string; question_id: string | null }[]; submits: unknown[]; drafts: unknown[]; virtualMs: number };
+type InitialProgress = { currentIndex?: number; questionStartedAt?: string; finished?: boolean };
 
-async function openStrictTest(page: Page, settings: Settings, questionStarted: Record<string, string> = {}) {
+async function openStrictTest(page: Page, settings: Settings, initial: InitialProgress = {}, eventDelayMs = 0) {
   const mock: Mock = { events: [], submits: [], drafts: [], virtualMs: 0 };
   const serverNow = () => new Date(Date.now() + mock.virtualMs).toISOString();
-  const started = { ...questionStarted };
+  let currentIndex = initial.currentIndex || 0;
+  let questionStartedAt = initial.questionStartedAt || serverNow();
   const leaves = () => mock.events.filter(event => event.kind === "leave").length;
   const locked = () => settings.leave_limit !== null && leaves() > settings.leave_limit;
 
@@ -36,18 +38,20 @@ async function openStrictTest(page: Page, settings: Settings, questionStarted: R
   await page.route(`${supabaseUrl}/**`, route => route.fulfill({ json: user }));
   await page.route(`**/api/share/${TOKEN}`, route => route.fulfill({ json: {
     submitted: false, title: "Контрольная", topic: "Повторение", variant_name: "Variant A",
-    variant: { instructions: "Отвечайте сами.", questions },
+    variant: { instructions: "Отвечайте сами.", questions: initial.finished ? [] : [questions[currentIndex]] },
     settings: { one_question_at_a_time: true, reveal_score: false, strict_mode: true, ...settings },
     answers: {}, closes_at: null, saved_at: serverNow(), expired: false,
+    question_count: questions.length,
     student_label: "Ученик Тестов · student@example.com",
-    integrity: { leaves: 0, locked: false, question_started: started },
+    integrity: { leaves: 0, locked: false },
+    strict_progress: { current_index: currentIndex, question_started_at: questionStartedAt, finished: Boolean(initial.finished) },
     server_now: serverNow(),
   } }));
   await page.route(`**/api/share/${TOKEN}/events`, async route => {
     const body = route.request().postDataJSON() as { kind: string; question_id: string | null };
     mock.events.push(body);
-    if (body.kind === "question_shown" && body.question_id && !started[body.question_id]) started[body.question_id] = serverNow();
-    await route.fulfill({ json: { leaves: leaves(), locked: locked(), question_started: started, server_now: serverNow() } });
+    if (eventDelayMs) await new Promise(resolve => setTimeout(resolve, eventDelayMs));
+    await route.fulfill({ json: { leaves: leaves(), locked: locked(), server_now: serverNow() } });
   });
   await page.route(`**/api/share/${TOKEN}/draft`, async route => {
     mock.drafts.push(route.request().postDataJSON());
@@ -55,7 +59,20 @@ async function openStrictTest(page: Page, settings: Settings, questionStarted: R
   });
   await page.route(`**/api/share/${TOKEN}/submit`, async route => {
     mock.submits.push(route.request().postDataJSON());
-    await route.fulfill({ json: { submitted: true, percentage: null, expired: settings.question_seconds > 0 && !locked(), locked: locked() } });
+    // Like the real server: a per-question timeout does not expire the whole attempt window.
+    await route.fulfill({ json: { submitted: true, percentage: null, expired: false, locked: locked() } });
+  });
+  await page.route(`**/api/share/${TOKEN}/next`, async route => {
+    if (currentIndex >= questions.length - 1) {
+      await route.fulfill({ json: { finished: true, server_now: serverNow() } });
+      return;
+    }
+    currentIndex += 1;
+    questionStartedAt = serverNow();
+    await route.fulfill({ json: {
+      ready: true, current_index: currentIndex, question_started_at: questionStartedAt,
+      server_now: serverNow(), question: questions[currentIndex],
+    } });
   });
 
   await page.goto(`/s/${TOKEN}`);
@@ -67,7 +84,7 @@ test("strict mode watermarks the page, blocks the clipboard and auto-submits aft
   const mock = await openStrictTest(page, { leave_limit: 1, question_seconds: 0 });
 
   await expect(page.locator(".strict-watermark").first()).toContainText("student@example.com");
-  await expect.poll(() => mock.events.some(event => event.kind === "question_shown" && event.question_id === "q1")).toBe(true);
+  await expect(page.getByText("Столица Казахстана?")).toHaveCount(0);
 
   const copyBlocked = await page.getByRole("heading", { name: "Сколько будет 2 + 2?" }).evaluate(element => {
     const event = new ClipboardEvent("copy", { bubbles: true, cancelable: true });
@@ -116,18 +133,27 @@ test("per-question timer advances on its own, hides the back button and submits 
 
   await advance(16_000);
   await expect(page.getByText("Вопрос 2 из 2")).toBeVisible();
-  await expect.poll(() => mock.events.some(event => event.kind === "question_shown" && event.question_id === "q2")).toBe(true);
 
   await advance(16_000);
   await expect(page.getByRole("heading", { name: "Время вышло, работа отправлена" })).toBeVisible();
   expect(mock.submits).toEqual([{}]);
 });
 
-test("reloading cannot reopen a question whose own time has run out", async ({ page }) => {
+test("reloading resumes the server-selected question and never returns an earlier one", async ({ page }) => {
   const mock = await openStrictTest(page, { leave_limit: 2, question_seconds: 30 }, {
-    q1: new Date(Date.now() - 120_000).toISOString(),
+    currentIndex: 1, questionStartedAt: new Date().toISOString(),
   });
   await expect(page.getByText("Вопрос 2 из 2")).toBeVisible();
   await expect(page.getByText("Сколько будет 2 + 2?")).toHaveCount(0);
   expect(mock.submits).toEqual([]);
+});
+
+test("the leave counter updates at once, before a slow server answers", async ({ page }) => {
+  const mock = await openStrictTest(page, { leave_limit: 2, question_seconds: 0 }, {}, 4000);
+  await expect(page.getByText(/Уходов:\s*0 из 2/)).toBeVisible();
+  await page.evaluate(() => window.dispatchEvent(new Event("blur")));
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+  // The mocked server takes 4 s; the screen must not wait for it.
+  await expect(page.getByText(/Уходов:\s*1 из 2/)).toBeVisible({ timeout: 1500 });
+  await expect.poll(() => mock.events.filter(event => event.kind === "leave").length).toBe(1);
 });

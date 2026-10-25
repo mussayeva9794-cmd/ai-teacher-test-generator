@@ -71,6 +71,14 @@ jobs:
         env:
           ATTEMPT_WINDOW_TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/ai_teacher_attempt_window_test
 
+      - name: Test strict-mode progression RPCs against PostgreSQL
+        run: |
+          PGPASSWORD=postgres psql -h localhost -U postgres -d ai_teacher_attempt_window_test -c "create database ai_teacher_strict_progress_test"
+          npm run test:strict-progress:db
+        env:
+          STRICT_PROGRESS_TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/ai_teacher_strict_progress_test
+          STRICT_PROGRESS_TEST_ALLOW_LOCAL: "1"
+
       - name: Typecheck
         run: npm run typecheck
 

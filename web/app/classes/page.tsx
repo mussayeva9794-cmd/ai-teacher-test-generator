@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Link from "next/link";
+import { TeacherHeader } from "../teacher-nav";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/client";
 import type { ClassRow } from "@/lib/types";
@@ -84,7 +84,7 @@ export default function ClassesPage() {
   }
 
   return <div className="wrap">
-    <header className="topbar"><Link className="brand" href="/"><span className="brand-mark">A</span> AI Teacher</Link><nav className="navlinks"><Link className="btn ghost" href="/dashboard">← Тесты</Link><Link className="btn ghost" href="/account">Аккаунт</Link></nav></header>
+    <TeacherHeader current="classes" />
     <section className="page-head"><div className="eyebrow">Рабочее пространство</div><h1>Классы</h1><p className="muted">Добавьте адреса школьных Google-аккаунтов один раз. При публикации выбирайте класс, а не вводите список заново.</p></section>
     {error && <div className="error" role="alert" style={{ marginBottom: 16 }}>{error}</div>}{message && <div className="success" role="status" style={{ marginBottom: 16 }}>{message}</div>}
     <form className="panel stack" onSubmit={createClass}>

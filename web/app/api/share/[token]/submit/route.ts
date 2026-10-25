@@ -1,7 +1,7 @@
 import type { NextRequest } from "next/server";
 import { actorFromRequest, jsonError } from "@/lib/auth";
 import { grade, personalizedVariant } from "@/lib/assessment";
-import { enforceQuestionWindows, leaveLimitReached, loadIntegrity } from "@/lib/integrity-server";
+import { leaveLimitReached, loadIntegrity } from "@/lib/integrity-server";
 import { shareContext } from "@/lib/share";
 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ token: string }> }) {
@@ -25,7 +25,9 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   const integrity = settings.strict_mode ? await loadIntegrity(admin, link.id, actor.id) : null;
   // After too many leaves only the answers saved before locking count.
   const strictLocked = Boolean(integrity && leaveLimitReached(settings, integrity.leaves));
-  const currentAnswers = isAnswersObject(body.answers) && !strictLocked
+  // Strict answers are persisted one open question at a time by the database
+  // RPC. Never accept a complete answer map from the browser at submission.
+  const currentAnswers = !settings.strict_mode && isAnswersObject(body.answers) && !strictLocked
     ? Object.fromEntries(Object.entries(body.answers).filter(([id]) => allowedIds.has(id)))
     : null;
 
@@ -39,8 +41,11 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     if (!isAnswersObject(draft.answers)) return jsonError("The saved draft is invalid.", 503);
 
     const savedAnswers = Object.fromEntries(Object.entries(draft.answers).filter(([id]) => allowedIds.has(id)));
-    const submittedAnswers = currentAnswers && integrity && settings.question_seconds > 0
-      ? enforceQuestionWindows(currentAnswers, savedAnswers, integrity.question_started, settings.question_seconds, Date.now())
+    // A locked strict attempt, or one whose last question timed out, submits the
+    // server-saved draft. The RPC requires current answers while the attempt
+    // window itself is still open, so pass the saved draft explicitly.
+    const submittedAnswers = settings.strict_mode && (strictLocked || !currentAnswers)
+      ? savedAnswers
       : currentAnswers;
     const currentResult = submittedAnswers ? grade(ordered, submittedAnswers) : null;
     const savedResult = grade(ordered, savedAnswers);

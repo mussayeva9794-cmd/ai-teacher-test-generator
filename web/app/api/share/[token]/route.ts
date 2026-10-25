@@ -52,15 +52,50 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     closesAt = settings.deadline_at;
   }
   const expired = attemptWindowExpired(draft.started_at, settings.timer_minutes, settings.deadline_at);
+  const ordered = personalizedVariant(variant, token, actor.id, settings.randomize);
+  const student = studentVariant(ordered);
   const integrity = settings.strict_mode ? await loadIntegrity(admin, link.id, actor.id) : null;
+  let deliveredVariant = student;
+  let strictProgress: { current_index: number; question_started_at: string; finished: boolean } | null = null;
+  if (settings.strict_mode) {
+    const { data: state, error: stateError } = await admin.rpc("start_or_load_web_strict_attempt", {
+      p_link_id: link.id,
+      p_test_id: test.id,
+      p_student_id: actor.id,
+      p_question_ids: ordered.questions.map((question) => question.id),
+    });
+    if (stateError) {
+      console.error("Strict attempt state failed", { code: stateError.code });
+      return jsonError("Could not open the strict test. Please retry.", 503);
+    }
+    const progress = state as { status?: string; current_index?: number; question_started_at?: string; finished?: boolean } | null;
+    const currentIndex = progress?.current_index;
+    if (progress?.status === "submitted") return jsonError("This test was already submitted.", 409);
+    if (progress?.status !== "ready" || typeof currentIndex !== "number" || !Number.isInteger(currentIndex) ||
+        typeof progress.question_started_at !== "string") {
+      return jsonError("Could not open the strict test. Please retry.", 503);
+    }
+    strictProgress = {
+      current_index: currentIndex,
+      question_started_at: progress.question_started_at,
+      finished: Boolean(progress.finished),
+    };
+    const currentQuestion = student.questions[currentIndex];
+    deliveredVariant = {
+      ...student,
+      // Future questions never leave the server in strict mode.
+      questions: currentQuestion && !progress.finished ? [currentQuestion] : [],
+    };
+  }
   return Response.json({
     submitted: false, title: test.title, topic: test.topic, variant_name: link.variant_name,
-    variant: studentVariant(personalizedVariant(variant, token, actor.id, settings.randomize)),
+    variant: deliveredVariant,
     settings: {
       one_question_at_a_time: settings.one_question_at_a_time, reveal_score: settings.reveal_score,
       strict_mode: settings.strict_mode, leave_limit: settings.leave_limit, question_seconds: settings.question_seconds,
     },
     answers: draft.answers || {}, closes_at: closesAt, saved_at: draft.updated_at, expired,
+    ...(strictProgress ? { question_count: student.questions.length, strict_progress: strictProgress } : {}),
     ...(settings.strict_mode ? {
       // Rendered as a watermark so a leaked screenshot identifies its source.
       student_label: [actor.name, actor.email].filter(Boolean).join(" · "),
