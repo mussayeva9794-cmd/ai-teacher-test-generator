@@ -1,5 +1,7 @@
 // Display labels for values stored in English in the database. Stored values
 // ("Variant A", "russian") stay unchanged; only what people read is localized.
+import { ru } from "./i18n/dictionaries/ru";
+import type { Dictionary } from "./i18n/dictionaries";
 
 const LANGUAGES: Record<string, string> = { russian: "Русский", kazakh: "Қазақша", english: "English" };
 
@@ -7,8 +9,11 @@ export function languageLabel(code: string | null | undefined): string {
   return LANGUAGES[String(code || "").toLowerCase()] || String(code || "");
 }
 
-export function variantLabel(name: string | null | undefined): string {
-  return String(name || "").replace(/^Variant\b/, "Вариант");
+/** "Variant A" as stored → "Вариант A" / "A нұсқасы" / "Variant A". Russian by default. */
+export function variantLabel(name: string | null | undefined, t: Dictionary = ru): string {
+  const text = String(name || "");
+  const match = /^Variant\s+(\S+)$/.exec(text);
+  return match ? t.labels.variant(match[1]) : text;
 }
 
 function comparable(value: string | null | undefined): string {

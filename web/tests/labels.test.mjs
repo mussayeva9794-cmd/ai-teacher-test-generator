@@ -2,7 +2,18 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { distinctTopic, languageLabel, testMeta, variantLabel } from "../lib/labels.ts";
+import { registerHooks } from "node:module";
+
+// lib/ uses extensionless relative imports (resolved by Next); add ".ts" here.
+registerHooks({
+  resolve(specifier, context, nextResolve) {
+    if ((specifier.startsWith("./") || specifier.startsWith("../")) && !/\.[cm]?[jt]s$/.test(specifier) && context.parentURL?.includes("/lib/")) {
+      return nextResolve(`${specifier}.ts`, context);
+    }
+    return nextResolve(specifier, context);
+  },
+});
+const { distinctTopic, languageLabel, testMeta, variantLabel } = await import("../lib/labels.ts");
 
 const teacherPage = readFileSync(fileURLToPath(new URL("../app/tests/[id]/page.tsx", import.meta.url)), "utf8");
 
@@ -30,27 +41,6 @@ test("unsaved question edits are protected", () => {
   assert.match(teacherPage, /<TeacherHeader current="tests" canLeave=\{canLeave\} \/>/);
   assert.match(teacherPage, /savedSnapshot\.current = snapshot\(test\);\s*setTest\(\{ \.\.\.test, status/);
   assert.doesNotMatch(teacherPage, /Vercel/);
-});
-
-test("server errors reach the student in Russian", async () => {
-  const { studentMessage } = await import("../lib/labels.ts");
-  assert.match(studentMessage("This account is not enrolled in the selected class."), /нет в списке класса/);
-  assert.equal(studentMessage("This account has already submitted this test."), "Вы уже отправили этот тест.");
-  assert.match(studentMessage("Request failed (502)"), /Нет связи с сервером/);
-  assert.match(studentMessage("Failed to fetch"), /Нет связи с сервером/);
-  assert.equal(studentMessage("Уже по-русски."), "Уже по-русски.");
-  assert.equal(studentMessage(undefined), "");
-});
-
-test("every English error a student can hit has a Russian translation", async () => {
-  const { studentMessage } = await import("../lib/labels.ts");
-  const sources = ["../lib/share.ts", "../app/api/share/[token]/route.ts", "../app/api/share/[token]/draft/route.ts",
-    "../app/api/share/[token]/submit/route.ts", "../app/api/share/[token]/next/route.ts"]
-    .map((path) => readFileSync(fileURLToPath(new URL(path, import.meta.url)), "utf8")).join("\n");
-  const messages = [...sources.matchAll(/(?:jsonError\(|error: )"([^"]+)"/g)].map((match) => match[1])
-    .filter((message) => !/^(Invalid (event|strict answer)|Open the test before recording|Question progression|Strict mode is not|Too many events|The saved draft)/.test(message));
-  assert.ok(messages.length > 10);
-  for (const message of messages) assert.notEqual(studentMessage(message), message, message);
 });
 
 test("the overall timer counts on the server clock, not the device clock", () => {

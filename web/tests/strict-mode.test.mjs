@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { leaveLimitReached, parseClientEvent, summarizeIntegrity } from "../lib/integrity.ts";
 import { parseSettings } from "../lib/assessment.ts";
+const { ru } = await import("../lib/i18n/dictionaries/ru.ts");
 
 const read = (path) => readFileSync(fileURLToPath(new URL(path, import.meta.url)), "utf8");
 const eventsRoute = read("../app/api/share/[token]/events/route.ts");
@@ -101,8 +102,10 @@ test("strict answers and advancement are server-authoritative", () => {
 test("teacher results read signals through an ownership-checked, failure-tolerant summary", () => {
   assert.match(attemptsRoute, /eq\("owner_id", actor\.id\)[\s\S]*?web_attempt_integrity_summary/);
   assert.match(attemptsRoute, /if \(integrityError\) console\.error/);
-  assert.match(teacherPage, /Это сигналы для внимания, а не доказательство/);
-  assert.match(teacherPage, /"Уходов со страницы", "Вне теста \(с\)", "Вставок", "Копирований", "Автосдача"/);
+  assert.match(teacherPage, /\{p\.strictNote\}/);
+  assert.match(ru.testPage.strictNote, /Это сигналы для внимания, а не доказательство/);
+  assert.match(teacherPage, /const headers = p\.csvHeaders;/);
+  assert.deepEqual(ru.testPage.csvHeaders.slice(4), ["Уходов со страницы", "Вне теста (с)", "Вставок", "Копирований", "Автосдача"]);
 });
 
 test("the student page hides questions on leave, blocks clipboard, and receives only server-selected questions", () => {

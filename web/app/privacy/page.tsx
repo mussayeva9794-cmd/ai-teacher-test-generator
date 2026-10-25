@@ -1,52 +1,58 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { Brand } from "../brand";
+import { LanguageSwitcher } from "../language-switcher";
+import { getT } from "@/lib/i18n/server";
 
-export const metadata: Metadata = {
-  title: "Конфиденциальность | AI Teacher",
-  description: "Как AI Teacher использует данные аккаунтов и учебные данные.",
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const { t } = await getT();
+  return { title: t.meta.privacyTitle, description: t.meta.privacyDescription };
+}
 
-export default function PrivacyPage() {
+export default async function PrivacyPage() {
+  const { t } = await getT();
+  const p = t.privacy;
   return (
     <div className="wrap">
       <header className="topbar">
-        <Link className="brand" href="/"><span className="brand-mark">A</span> AI Teacher</Link>
-        <Link className="btn ghost" href="/login">Войти</Link>
+        <Brand />
+        <LanguageSwitcher />
+        <Link className="btn ghost" href="/login">{t.common.signIn}</Link>
       </header>
       <main className="panel stack" style={{ maxWidth: 880, margin: "5vh auto" }}>
-        <div className="eyebrow">AI Teacher Test Generator</div>
-        <h1>Политика конфиденциальности</h1>
-        <p className="muted">Дата обновления: 9 октября 2026 г.</p>
+        <div className="eyebrow">{p.eyebrow}</div>
+        <h1>{p.title}</h1>
+        <p className="muted">{p.updated}</p>
 
-        <p>Эта страница описывает данные, которые обрабатывает AI Teacher, и цели такой обработки. Сервис используется для подготовки учителем тестов, выдачи доступа ученикам и просмотра результатов. Для школьного использования школа и ответственный учитель должны разрешить работу с данными учащихся.</p>
+        <p>{p.intro}</p>
 
-        <h2>Какие данные обрабатываются</h2>
+        <h2>{p.dataTitle}</h2>
         <ul>
-          <li><strong>Данные входа через Google:</strong> адрес электронной почты, имя и базовые данные профиля, идентификатор Google и признак подтверждённого адреса. Google-вход запрашивает только <code>openid</code>, <code>email</code> и <code>profile</code>; доступ к Gmail, Drive, контактам и календарю не запрашивается.</li>
-          <li><strong>Данные аккаунта AI Teacher:</strong> адрес электронной почты, отображаемое имя, роль и сведения, необходимые для аутентификации. Сессия входа сохраняется в браузере, чтобы не требовать повторный вход при каждом открытии ссылки.</li>
-          <li><strong>Учебные данные:</strong> названия классов и список приглашённых адресов, содержание тестов и предоставленные учителем материалы, ответы учеников, результаты и время сдачи.</li>
-          <li><strong>Ключи доступа:</strong> при включении Face ID или Touch ID сервис хранит данные WebAuthn-учётных данных для входа. Биометрический шаблон остаётся на устройстве и сайту не передаётся.</li>
-          <li><strong>Технические данные:</strong> стандартные журналы и сведения о запросах, необходимые для работы, защиты и диагностики сервиса.</li>
+          <li><strong>{p.googleDataTitle}</strong>{p.googleDataBefore}<code>openid</code>, <code>email</code> {p.and} <code>profile</code>{p.googleDataAfter}</li>
+          <li><strong>{p.accountTitle}</strong>{p.accountText}</li>
+          <li><strong>{p.learningTitle}</strong>{p.learningText}</li>
+          <li><strong>{p.passkeysTitle}</strong>{p.passkeysText}</li>
+          <li><strong>{p.technicalTitle}</strong>{p.technicalText}</li>
         </ul>
 
-        <h2>Как используются данные Google</h2>
-        <p>Данные Google используются только для входа в AI Teacher, создания или подтверждения аккаунта и проверки соответствия подтверждённого адреса электронной почты списку класса. Мы не используем их для рекламы, продажи данных или доступа к другим сервисам Google. Если способ использования данных изменится, эту политику нужно обновить и сообщить об изменении пользователям.</p>
+        <h2>{p.googleUseTitle}</h2>
+        <p>{p.googleUseText}</p>
 
-        <h2>Поставщики сервисов</h2>
-        <p>AI Teacher использует Google для аутентификации, Supabase для аккаунтов и базы данных, Vercel для размещения сайта, а Groq — для генерации тестов по теме и материалам, которые передаёт учитель. Материалы, отправленные на генерацию, передаются Groq для выполнения этого запроса. Не включайте в них личные данные учеников, если они не нужны для задания и школа не разрешила их обработку.</p>
-        <p className="small muted">Информация поставщиков: <a href="https://policies.google.com/privacy" target="_blank" rel="noreferrer">Google</a>, <a href="https://supabase.com/privacy" target="_blank" rel="noreferrer">Supabase</a>, <a href="https://vercel.com/legal/privacy-notice" target="_blank" rel="noreferrer">Vercel</a>, <a href="https://groq.com/privacy-policy" target="_blank" rel="noreferrer">Groq</a>.</p>
+        <h2>{p.providersTitle}</h2>
+        <p>{p.providersText}</p>
+        <p className="small muted">{p.providersLinks} <a href="https://policies.google.com/privacy" target="_blank" rel="noreferrer">Google</a>, <a href="https://supabase.com/privacy" target="_blank" rel="noreferrer">Supabase</a>, <a href="https://vercel.com/legal/privacy-notice" target="_blank" rel="noreferrer">Vercel</a>, <a href="https://groq.com/privacy-policy" target="_blank" rel="noreferrer">Groq</a>.</p>
 
-        <h2>Хранение, доступ и удаление</h2>
-        <p>Данные хранятся в Supabase и используются в пределах аккаунта и школьных сценариев сервиса. Учитель видит результаты только тестов, которыми он управляет; ученикам не предназначен доступ к ответам и результатам других учащихся. Данные могут сохраняться, пока активны аккаунт, класс или учебная запись, а также в резервных копиях на срок, определяемый поставщиком. В приложении сейчас нет самостоятельного удаления аккаунта: для запроса на исправление или удаление обратитесь к ответственному учителю или в поддержку. Школа должна определить сроки хранения учебных результатов и обработать запрос с учётом своих обязанностей.</p>
+        <h2>{p.storageTitle}</h2>
+        <p>{p.storageText}</p>
 
-        <h2>Безопасность и ограничения</h2>
-        <p>Доступ к данным ограничивается аутентификацией, ролями и правилами базы данных. Ни одна передача или система хранения не может гарантировать абсолютную защиту. Google-вход в пилотном запуске предназначен для учеников 13 лет и старше; перед расширением на более младший возраст школа должна отдельно проверить требования Google и применимое законодательство.</p>
+        <h2>{p.securityTitle}</h2>
+        <p>{p.securityText}</p>
 
-        <h2>Контакт</h2>
-        <p>По вопросам об этой политике, доступе или удалении данных обратитесь на <a href="mailto:mussayeva9794@gmail.com">mussayeva9794@gmail.com</a> либо к ответственному учителю.</p>
+        <h2>{p.contactTitle}</h2>
+        <p>{p.contactBefore}<a href="mailto:mussayeva9794@gmail.com">mussayeva9794@gmail.com</a>{p.contactAfter}</p>
 
         <div className="divider" />
-        <p className="small muted">Перед использованием сервиса всей школой администратор школы должен утвердить эту политику, способ регистрации и сроки хранения результатов.</p>
+        <p className="small muted">{p.approval}</p>
       </main>
     </div>
   );

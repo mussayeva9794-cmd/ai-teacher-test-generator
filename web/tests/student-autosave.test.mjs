@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+const { ru } = await import("../lib/i18n/dictionaries/ru.ts");
 
 const page = await readFile(new URL("../app/s/[token]/page.tsx", import.meta.url), "utf8");
 
@@ -20,6 +21,8 @@ test("timer submission cancels and flushes a pending debounce before using the s
 test("student autosave speeds up near expiry and warns that the last seconds depend on connectivity", () => {
   assert.match(page, /remaining !== null && remaining <= 15 \? 100 : 650/);
   assert.match(page, /remaining > 0 && remaining <= 15/);
-  assert.match(page, /при медленной сети, может не успеть сохраниться/);
-  assert.match(page, /Учителю отправлен последний черновик, который успел сохраниться/);
+  assert.match(page, /\{st\.endingSoon\}/);
+  assert.match(ru.student.endingSoon, /при медленной сети, может не успеть сохраниться/);
+  assert.match(page, /\{st\.lastAnswerWarning\}/);
+  assert.match(ru.student.lastAnswerWarning, /Учителю отправлен последний черновик, который успел сохраниться/);
 });
