@@ -4,7 +4,7 @@ export async function GET() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
   const supabaseSecret = process.env.SUPABASE_SECRET_KEY?.replace(/\s+/g, "");
   const groqKey = process.env.GROQ_API_KEY?.replace(/\s+/g, "");
-  const groqModel = process.env.GROQ_MODEL?.trim() || "openai/gpt-oss-20b";
+  const groqModel = process.env.GROQ_MODEL?.trim() || "openai/gpt-oss-120b";
   const supabaseConfigured = Boolean(supabaseUrl && process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY && supabaseSecret);
   const supabaseUrlValid = (() => {
     try {
