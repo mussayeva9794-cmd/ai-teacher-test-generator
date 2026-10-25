@@ -135,6 +135,11 @@ function toQuestion(
   };
 }
 
+function reasoningEffort(): "low" | "medium" | "high" {
+  const value = process.env.GROQ_REASONING_EFFORT?.trim();
+  return value === "low" || value === "high" ? value : "medium";
+}
+
 async function requestVariant(input: GenerateInput, difficulty: string): Promise<TestVariant> {
   const apiKey = process.env.GROQ_API_KEY?.replace(/\s+/g, "");
   if (!apiKey) throw new GroqGenerationError("configuration", "GROQ_API_KEY is not configured.");
@@ -146,7 +151,10 @@ Return only a JSON object with title, instructions, questions. The questions arr
 question, correct_answer, explanation, skill_tag, source_reference. If a source was provided, source_reference must be a brief reference to the relevant heading, page, or passage from that source. If no source was provided, use an empty string. Multiple choice: 4 distinct options including
 correct_answer. True/false: use exactly ${TRUE_FALSE_OPTIONS[input.language].join(" and ")} and make correct_answer one of them. Matching: pairs array
 of objects with left and right plus correct_answer as an empty string. Short answer: concise model answer.
-Do not repeat questions, do not include unsupported facts, keep the answer unambiguous.`;
+Do not repeat questions, do not include unsupported facts, keep the answer unambiguous.
+Before answering, check every question: it is factually correct for this grade; exactly one option is correct and it equals correct_answer;
+every other option is clearly wrong; a negatively worded question ("NOT", "НЕ", "ЕМЕС") has exactly one option that does not fit;
+the explanation states why correct_answer is right and never contradicts it. Rewrite any question that fails a check.`;
   let response: Response;
   try {
     response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
@@ -156,7 +164,8 @@ Do not repeat questions, do not include unsupported facts, keep the answer unamb
         model: process.env.GROQ_MODEL?.trim() || "openai/gpt-oss-20b",
         temperature: 0.35,
         max_completion_tokens: 8192,
-        reasoning_effort: "low",
+        // "low" produced factual slips in live QA; teachers still review every question.
+        reasoning_effort: reasoningEffort(),
         include_reasoning: false,
         response_format: {
           type: "json_schema",
