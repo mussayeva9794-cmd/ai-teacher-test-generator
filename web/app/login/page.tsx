@@ -8,10 +8,16 @@ import { browserClient } from "@/lib/supabase";
 import { oauthRequestedNext, safeNext } from "@/lib/client";
 import { signInWithPasskey } from "@/lib/passkeys";
 import { defaultDestination, googleOAuthOptions, roleFromProfileResult, signupOptions } from "@/lib/signup";
+import { serverMessage } from "@/lib/i18n/server-message";
+import { Brand } from "../brand";
+import { useT } from "../i18n-provider";
+import { LanguageSwitcher } from "../language-switcher";
 
 function LoginForm() {
   const search = useSearchParams();
   const router = useRouter();
+  const t = useT();
+  const l = t.login;
   const [mode, setMode] = useState(search.get("mode") === "signup" ? "signup" : "signin");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -37,14 +43,14 @@ function LoginForm() {
     const providerError = searchParams.get("error_description") || hashParams.get("error_description");
     if (callback) setOauthNext(oauthRequestedNext(window.sessionStorage.getItem("ai_teacher_oauth_next")));
     if (providerError) {
-      setError("Не удалось завершить вход через Google. Попробуйте ещё раз.");
+      setError(l.googleFailed);
       window.sessionStorage.removeItem("ai_teacher_oauth_next");
       setBusy(false);
     }
     let auth: ReturnType<typeof browserClient>["auth"];
     try { auth = browserClient().auth; }
     catch {
-      setError("Вход временно недоступен: не настроено подключение к Supabase.");
+      setError(l.supabaseMissing);
       return;
     }
     const { data: { subscription } } = auth.onAuthStateChange((_event, session) => {
@@ -68,7 +74,7 @@ function LoginForm() {
         router.replace(next);
       }
     }).catch(() => {
-      if (active) setError("Вход выполнен, но профиль не удалось загрузить. Попробуйте войти ещё раз.");
+      if (active) setError(l.profileFailed);
     }).finally(() => {
       if (active) setBusy(false);
     });
@@ -85,14 +91,14 @@ function LoginForm() {
           options: signupOptions(name, location.origin, signupNext),
         });
         if (authError) throw authError;
-        if (!data.session) setMessage("Проверьте почту и подтвердите адрес, затем войдите.");
+        if (!data.session) setMessage(l.checkEmail);
         else router.replace(signupNext);
       } else {
         const { data, error: authError } = await auth.signInWithPassword({ email, password });
         if (authError) throw authError;
         router.replace(await destination(data.user.id));
       }
-    } catch (cause) { setError(cause instanceof Error ? cause.message : "Не удалось войти. Повторите попытку."); }
+    } catch (cause) { setError(serverMessage(t, cause instanceof Error ? cause.message : "", l.signinFailed)); }
     finally { setBusy(false); }
   }
 
@@ -102,7 +108,7 @@ function LoginForm() {
       const session = await signInWithPasskey(browserClient().auth);
       router.replace(await destination(session.user.id));
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Не удалось войти с ключом доступа.");
+      setError(serverMessage(t, cause instanceof Error ? cause.message : "", l.passkeyFailed));
     } finally { setBusy(false); }
   }
 
@@ -118,7 +124,7 @@ function LoginForm() {
       if (oauthError) throw oauthError;
     } catch (cause) {
       window.sessionStorage.removeItem("ai_teacher_oauth_next");
-      setError(cause instanceof Error ? cause.message : "Не удалось начать вход через Google.");
+      setError(serverMessage(t, cause instanceof Error ? cause.message : "", l.googleStartFailed));
       setBusy(false);
     }
   }
@@ -130,29 +136,31 @@ function LoginForm() {
         redirectTo: `${window.location.origin}/reset-password`,
       });
       if (resetError) throw resetError;
-      setMessage("Если аккаунт с таким адресом существует, мы отправим письмо со ссылкой для смены пароля.");
+      setMessage(l.resetSent);
     } catch {
-      setError("Не удалось отправить письмо. Проверьте адрес и попробуйте позже.");
+      setError(l.resetFailed);
     } finally { setBusy(false); }
   }
 
-  return <div className="wrap"><header className="topbar"><Link className="brand" href="/"><span className="brand-mark">A</span> AI Teacher</Link></header>
-    <div className="auth-layout"><aside className="auth-art draw-in enter" aria-hidden="true"><SheetsIllustration /><p className="auth-art-caption"><b>Тест готов за минуту.</b>Четыре варианта, ссылка для класса и результаты — в одном месте.</p></aside>
-    <main className="panel enter" style={{ ["--i" as string]: 1 }}><div className="eyebrow">Личный кабинет</div><h2>{mode === "signup" ? "Создать аккаунт" : "С возвращением"}</h2><p className="muted">{mode === "signup" ? "Новый аккаунт создаётся для ученика. Учительский доступ выдаёт администратор школы." : "Войдите, чтобы продолжить работу."}</p>
-      <div className="tabs tabs-slide" style={{ marginBottom: 22 }}><button className={mode === "signin" ? "active" : ""} onClick={() => setMode("signin")}>Вход</button><button className={mode === "signup" ? "active" : ""} onClick={() => setMode("signup")}>Регистрация</button></div>
+  return <div className="wrap"><header className="topbar"><Brand /><LanguageSwitcher /></header>
+    <div className="auth-layout"><aside className="auth-art draw-in enter" aria-hidden="true"><SheetsIllustration /><p className="auth-art-caption"><b>{l.artTitle}</b>{l.artText}</p></aside>
+    <main className="panel enter" style={{ ["--i" as string]: 1 }}><div className="eyebrow">{l.eyebrow}</div><h2>{mode === "signup" ? l.signupTitle : l.signinTitle}</h2><p className="muted">{mode === "signup" ? l.signupLead : l.signinLead}</p>
+      <div className="tabs tabs-slide" style={{ marginBottom: 22 }}><button className={mode === "signin" ? "active" : ""} onClick={() => setMode("signin")}>{l.tabSignin}</button><button className={mode === "signup" ? "active" : ""} onClick={() => setMode("signup")}>{l.tabSignup}</button></div>
       <form className="stack" onSubmit={submit}>
-        {mode === "signup" && <label className="field">Имя<input required value={name} onChange={e => setName(e.target.value)} autoComplete="name" /></label>}
-        <label className="field">Электронная почта<input required type="email" value={email} onChange={e => { setEmail(e.target.value); setError(""); setMessage(""); }} autoComplete="email" /></label>
-        <label className="field">Пароль<input required type="password" minLength={6} value={password} onChange={e => setPassword(e.target.value)} autoComplete={mode === "signup" ? "new-password" : "current-password"} /></label>
+        {mode === "signup" && <label className="field">{l.name}<input required value={name} onChange={e => setName(e.target.value)} autoComplete="name" /></label>}
+        <label className="field">{l.email}<input required type="email" value={email} onChange={e => { setEmail(e.target.value); setError(""); setMessage(""); }} autoComplete="email" /></label>
+        <label className="field">{l.password}<input required type="password" minLength={6} value={password} onChange={e => setPassword(e.target.value)} autoComplete={mode === "signup" ? "new-password" : "current-password"} /></label>
         {error && <div className="error" role="alert">{error}</div>}{message && <div className="success" role="status">{message}</div>}
-        <button className="btn primary" disabled={busy}>{busy ? "Подождите..." : mode === "signup" ? "Создать аккаунт" : "Войти"}</button>
+        <button className="btn primary" disabled={busy}>{busy ? t.common.wait : mode === "signup" ? l.submitSignup : l.submitSignin}</button>
       </form>
-      {mode === "signin" && <div className="stack" style={{ marginTop: 14 }}><button type="button" className="btn ghost small" disabled={busy || !email.trim()} onClick={requestPasswordReset}>Забыли пароль?</button></div>}
-      <div className="stack" style={{ marginTop: 18 }}><p className="muted small" style={{ textAlign: "center", marginBottom: 0 }}>или используйте школьный Google-аккаунт</p><button type="button" className="btn" disabled={busy} onClick={googleSignIn}>Войти или зарегистрироваться через Google</button>
-        {mode === "signin" && <><p className="muted small" style={{ textAlign: "center", marginBottom: 0 }}>или войти без Google</p><button type="button" className="btn" disabled={busy} onClick={passkeySignIn}>Войти с Face ID / Touch ID</button><p className="muted small">Также может потребоваться код разблокировки устройства. Пароль остаётся доступным.</p></>}
+      {mode === "signin" && <div className="stack" style={{ marginTop: 14 }}><button type="button" className="btn ghost small" disabled={busy || !email.trim()} onClick={requestPasswordReset}>{l.forgot}</button></div>}
+      <div className="stack" style={{ marginTop: 18 }}><p className="muted small" style={{ textAlign: "center", marginBottom: 0 }}>{l.googleDivider}</p><button type="button" className="btn" disabled={busy} onClick={googleSignIn}>{l.google}</button>
+        {mode === "signin" && <><p className="muted small" style={{ textAlign: "center", marginBottom: 0 }}>{l.passkeyDivider}</p><button type="button" className="btn" disabled={busy} onClick={passkeySignIn}>{l.passkey}</button><p className="muted small">{l.passkeyHint}</p></>}
       </div>
-      <p className="small muted" style={{ textAlign: "center", marginTop: 18 }}>Как сервис использует данные аккаунта и учебные данные: <Link href="/privacy">политика конфиденциальности</Link>.</p>
+      <p className="small muted" style={{ textAlign: "center", marginTop: 18 }}>{l.privacyBefore}<Link href="/privacy">{l.privacyLink}</Link>.</p>
     </main></div></div>;
 }
 
-export default function LoginPage() { return <Suspense fallback={<div className="wrap">Загрузка...</div>}><LoginForm /></Suspense>; }
+function LoginFallback() { return <div className="wrap">{useT().common.loading}</div>; }
+
+export default function LoginPage() { return <Suspense fallback={<LoginFallback />}><LoginForm /></Suspense>; }

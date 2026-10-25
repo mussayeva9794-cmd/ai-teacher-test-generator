@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { registerHooks } from "node:module";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+const { ru } = await import("../lib/i18n/dictionaries/ru.ts");
 
 const modules = new Map([
   ["@/lib/auth", "export const actorFromRequest = async () => globalThis.reviewMocks.actor; export const jsonError = (message, status = 400) => Response.json({ error: message }, { status });"],
@@ -78,5 +79,6 @@ test("review rejects invalid scores and non-pending attempts without writing", a
 
 test("results UI labels legacy manually reviewed questions as unscored", () => {
   const page = readFileSync(fileURLToPath(new URL("../app/tests/[id]/page.tsx", import.meta.url)), "utf8");
-  assert.match(page, /attempt\.result\?\.manually_reviewed_by[\s\S]*?return "Не оценено по вопросу"/);
+  assert.match(page, /attempt\.result\?\.manually_reviewed_by[\s\S]*?return t\.testPage\.scoreNotPerQuestion/);
+  assert.equal(ru.testPage.scoreNotPerQuestion, "Не оценено по вопросу");
 });

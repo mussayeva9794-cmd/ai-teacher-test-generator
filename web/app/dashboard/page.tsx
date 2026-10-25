@@ -9,9 +9,13 @@ import { useRouter } from "next/navigation";
 import { browserClient } from "@/lib/supabase";
 import { api } from "@/lib/client";
 import type { TestRow } from "@/lib/types";
+import { serverMessage } from "@/lib/i18n/server-message";
+import { useI18n } from "../i18n-provider";
 
 export default function Dashboard() {
   const router = useRouter();
+  const { t, date } = useI18n();
+  const d = t.dashboard;
   const [tests, setTests] = useState<TestRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -27,9 +31,9 @@ export default function Dashboard() {
           if (!active) return;
           if (cause instanceof Error && cause.message === "Teacher sign-in required.") {
             setTeacherOnly(true);
-            setError("Этот раздел доступен только учителю. Чтобы пройти тест, откройте ссылку от преподавателя.");
+            setError(d.teacherOnly);
           } else {
-            setError(cause instanceof Error ? cause.message : "Не удалось загрузить тесты.");
+            setError(serverMessage(t, cause instanceof Error ? cause.message : "", d.loadFailed));
           }
         })
         .finally(() => { if (active) setLoading(false); });
@@ -40,8 +44,8 @@ export default function Dashboard() {
   const visible = tests.filter(test => filter === "all" || test.status === filter);
   const count = (value: string) => value === "all" ? tests.length : tests.filter(test => test.status === value).length;
   return <div className="wrap"><TeacherHeader current="tests" limited={teacherOnly} />
-    <section className="page-head"><div className="eyebrow">Рабочее пространство</div><h1>Ваши тесты</h1><p className="muted">Создавайте, публикуйте и просматривайте результаты в одном месте.</p></section>
-    {!teacherOnly && <div className="toolbar"><div className="tabs">{[["all","Все"],["draft","Черновики"],["published","Активные"],["archived","Архив"]].map(([value,label]) => <button key={value} className={filter === value ? "active" : ""} onClick={() => setFilter(value)}>{label}{!loading && <span className="tab-count">{count(value)}</span>}</button>)}</div><Link className="btn primary" href="/create">+ Создать тест</Link></div>}
-    {loading ? <div className="panel">Загружаем тесты...</div> : error ? <div className="error">{error}</div> : visible.length ? <div className="grid cols-2 page-enter">{visible.map(test => <Link className="panel" href={`/tests/${test.id}`} key={test.id}><div className="row"><span className="eyebrow">{distinctTopic(test.topic, test.title)}</span><span className="pill">{test.status === "published" ? "Опубликован" : test.status === "draft" ? "Черновик" : "Архив"}</span></div><h3 style={{ marginTop: 16 }}>{test.title}</h3><p className="muted small">{[test.grade_level, languageLabel(test.language), new Date(test.created_at).toLocaleDateString("ru-RU")].filter(Boolean).join(" · ")}</p><span style={{ color: "var(--wine)", fontWeight: 700 }}>Открыть →</span></Link>)}</div> : <div className="panel soft empty-state page-enter draw-in"><EmptyIllustration /><div><h3>Здесь пока пусто</h3><p className="muted">Создайте первый тест, затем проверьте вопросы и отправьте ученикам.</p><Link className="btn primary" href="/create">Создать первый тест</Link></div></div>}
+    <section className="page-head"><div className="eyebrow">{d.eyebrow}</div><h1>{d.title}</h1><p className="muted">{d.lead}</p></section>
+    {!teacherOnly && <div className="toolbar"><div className="tabs">{[["all",d.filterAll],["draft",d.filterDraft],["published",d.filterPublished],["archived",d.filterArchived]].map(([value,label]) => <button key={value} className={filter === value ? "active" : ""} onClick={() => setFilter(value)}>{label}{!loading && <span className="tab-count">{count(value)}</span>}</button>)}</div><Link className="btn primary" href="/create">{d.create}</Link></div>}
+    {loading ? <div className="panel">{d.loading}</div> : error ? <div className="error">{error}</div> : visible.length ? <div className="grid cols-2 page-enter">{visible.map(test => <Link className="panel" href={`/tests/${test.id}`} key={test.id}><div className="row"><span className="eyebrow">{distinctTopic(test.topic, test.title)}</span><span className="pill">{t.status[test.status]}</span></div><h3 style={{ marginTop: 16 }}>{test.title}</h3><p className="muted small">{[test.grade_level, languageLabel(test.language), date(test.created_at)].filter(Boolean).join(" · ")}</p><span style={{ color: "var(--wine)", fontWeight: 700 }}>{d.open}</span></Link>)}</div> : <div className="panel soft empty-state page-enter draw-in"><EmptyIllustration /><div><h3>{d.emptyTitle}</h3><p className="muted">{d.emptyText}</p><Link className="btn primary" href="/create">{d.createFirst}</Link></div></div>}
   </div>;
 }

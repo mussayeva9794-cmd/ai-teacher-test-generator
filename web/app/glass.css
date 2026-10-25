@@ -333,3 +333,19 @@ a.panel:hover { transform: translateY(-3px); border-color: #d9b8b3; box-shadow: 
   .teacher-topbar .brand-mark { margin-right: 4px; }
   .teacher-topbar .navlinks .btn { padding-inline: 4px; font-size: .7rem; }
 }
+
+/* Language switcher on narrow screens: the menu must start at its first item
+   and scroll, never hide items past the left edge, and the page must not
+   scroll sideways. */
+@media (max-width: 560px) {
+  .teacher-topbar .navlinks { justify-content: flex-start; }
+  .teacher-topbar .lang-switch select { padding: 6px 17px 6px 6px; min-height: 34px; font-size: .64rem; letter-spacing: .03em; background-position: right 5px center; }
+  .student-shell .topbar { gap: 8px; }
+  .student-shell .topbar .watermark { display: none; }
+  .student-shell .topbar .navlinks { min-width: 0; }
+  .student-shell .topbar .navlinks .btn { white-space: normal; text-align: right; line-height: 1.2; padding-inline: 6px; }
+}
+@media (max-width: 380px) {
+  .student-shell .topbar .brand { font-size: 0; }
+  .student-shell .topbar .brand-mark { font-size: 1rem; margin-right: 0; }
+}

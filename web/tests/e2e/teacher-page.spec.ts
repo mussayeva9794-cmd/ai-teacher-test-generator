@@ -101,6 +101,28 @@ test("on a phone each result is one row that opens its details", async ({ page }
   expect(box!.width).toBeLessThanOrEqual(390);
 });
 
+test("the Kazakh teacher menu also fits a 320px phone", async ({ page, context }) => {
+  await context.addCookies([{ name: "mugalim_lang", value: "kk", domain: "127.0.0.1", path: "/" }]);
+  await page.setViewportSize({ width: 320, height: 700 });
+  await openTeacherTest(page);
+  const nav = await page.getByRole("navigation", { name: "Мұғалім мәзірі" }).boundingBox();
+  expect(nav!.height).toBeLessThan(48);
+  await expect(page.getByRole("button", { name: "Нәтижелер" })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(320);
+});
+
+for (const [locale, menu, first] of [["kk", "Мұғалім мәзірі", "Тесттер"], ["en", "Teacher menu", "Tests"], ["ru", "Меню учителя", "Тесты"]]) {
+  test(`the first teacher menu item is never cut off at 375px (${locale})`, async ({ page, context }) => {
+    await context.addCookies([{ name: "mugalim_lang", value: locale, domain: "127.0.0.1", path: "/" }]);
+    await page.setViewportSize({ width: 375, height: 700 });
+    await openTeacherTest(page);
+    const nav = (await page.getByRole("navigation", { name: menu }).boundingBox())!;
+    const item = (await page.getByRole("navigation", { name: menu }).getByRole("link", { name: first }).boundingBox())!;
+    expect(item.x).toBeGreaterThanOrEqual(nav.x - 1);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(375);
+  });
+}
+
 for (const width of [390, 360, 320]) {
   test(`the teacher menu fits on one line without sideways scrolling at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 700 });
