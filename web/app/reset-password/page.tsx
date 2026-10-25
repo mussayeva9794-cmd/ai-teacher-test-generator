@@ -3,10 +3,15 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { browserClient } from "@/lib/supabase";
+import { Brand } from "../brand";
+import { useT } from "../i18n-provider";
+import { LanguageSwitcher } from "../language-switcher";
 
 const recoveryMarker = "ai_teacher_password_recovery";
 
 export default function ResetPasswordPage() {
+  const t = useT();
+  const r = t.reset;
   const [checking, setChecking] = useState(true);
   const [recoveryReady, setRecoveryReady] = useState(false);
   const [completed, setCompleted] = useState(false);
@@ -54,7 +59,7 @@ export default function ResetPasswordPage() {
     setError("");
     setMessage("");
     if (password !== confirmPassword) {
-      setError("Пароли не совпадают.");
+      setError(r.mismatch);
       return;
     }
 
@@ -65,35 +70,35 @@ export default function ResetPasswordPage() {
       window.sessionStorage.removeItem(recoveryMarker);
       setRecoveryReady(false);
       setCompleted(true);
-      setMessage("Пароль изменён. Теперь можно войти с новым паролем.");
+      setMessage(r.done);
       setPassword("");
       setConfirmPassword("");
     } catch {
-      setError("Не удалось изменить пароль. Запросите новую ссылку и попробуйте ещё раз.");
+      setError(r.failed);
     } finally {
       setBusy(false);
     }
   }
 
-  return <div className="wrap"><header className="topbar"><Link className="brand" href="/"><span className="brand-mark">A</span> AI Teacher</Link></header>
+  return <div className="wrap"><header className="topbar"><Brand /><LanguageSwitcher /></header>
     <main className="panel stack" style={{ maxWidth: 460, margin: "8vh auto" }}>
-      <div className="eyebrow">Личный кабинет</div>
-      <h2>Новый пароль</h2>
-      {checking ? <p className="muted" role="status">Проверяем ссылку...</p> : completed ? <>
+      <div className="eyebrow">{r.eyebrow}</div>
+      <h2>{r.title}</h2>
+      {checking ? <p className="muted" role="status">{r.checking}</p> : completed ? <>
         <div className="success" role="status">{message}</div>
-        <Link className="btn primary" href="/login">Перейти ко входу</Link>
+        <Link className="btn primary" href="/login">{r.toLogin}</Link>
       </> : recoveryReady ? <>
-        <p className="muted">Придумайте новый пароль для аккаунта.</p>
+        <p className="muted">{r.lead}</p>
         <form className="stack" onSubmit={updatePassword}>
-          <label className="field">Новый пароль<input required type="password" minLength={6} autoComplete="new-password" value={password} onChange={event => { setPassword(event.target.value); setError(""); setMessage(""); }} /></label>
-          <label className="field">Повторите пароль<input required type="password" minLength={6} autoComplete="new-password" value={confirmPassword} onChange={event => { setConfirmPassword(event.target.value); setError(""); setMessage(""); }} /></label>
+          <label className="field">{r.newPassword}<input required type="password" minLength={6} autoComplete="new-password" value={password} onChange={event => { setPassword(event.target.value); setError(""); setMessage(""); }} /></label>
+          <label className="field">{r.repeatPassword}<input required type="password" minLength={6} autoComplete="new-password" value={confirmPassword} onChange={event => { setConfirmPassword(event.target.value); setError(""); setMessage(""); }} /></label>
           {error && <div className="error" role="alert">{error}</div>}{message && <div className="success" role="status">{message}</div>}
-          <button className="btn primary" disabled={busy}>{busy ? "Сохраняем..." : "Изменить пароль"}</button>
+          <button className="btn primary" disabled={busy}>{busy ? t.common.saving : r.submit}</button>
         </form>
-        <Link className="btn ghost" href="/login">Вернуться ко входу</Link>
+        <Link className="btn ghost" href="/login">{r.backToLogin}</Link>
       </> : <>
-        <div className="error" role="alert">Ссылка для смены пароля недействительна или срок её действия истёк. Запросите новую ссылку.</div>
-        <Link className="btn primary" href="/login">Вернуться ко входу</Link>
+        <div className="error" role="alert">{r.invalidLink}</div>
+        <Link className="btn primary" href="/login">{r.backToLogin}</Link>
       </>}
     </main>
   </div>;

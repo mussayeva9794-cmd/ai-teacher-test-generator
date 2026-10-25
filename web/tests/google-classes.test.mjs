@@ -6,6 +6,7 @@ import { normalizedClassEmails, normalizedClassName } from "../lib/classes.ts";
 import { verifiedGoogleIdentityEmail } from "../lib/google-identity.ts";
 import { hasExplicitShareScope, isAllowedByEmailList, normalizeEmailAllowlist } from "../lib/share-access.ts";
 import { googleOAuthOptions, roleFromProfileResult } from "../lib/signup.ts";
+const { ru } = await import("../lib/i18n/dictionaries/ru.ts");
 
 const root = (path) => fileURLToPath(new URL(path, import.meta.url));
 const login = readFileSync(root("../app/login/page.tsx"), "utf8");
@@ -110,7 +111,8 @@ test("share creation binds an active teacher-owned class and clears per-link ema
 
 test("creating an open link requires an explicit confirmation", () => {
   const page = readFileSync(root("../app/tests/[id]/page.tsx"), "utf8");
-  assert.match(page, /window\.confirm\("Список учеников пуст\.[\s\S]*Создать открытую ссылку\?"\)/);
+  assert.match(page, /window\.confirm\(p\.confirmOpenLink\)/);
+  assert.match(ru.testPage.confirmOpenLink, /^Список учеников пуст\.[\s\S]*Создать открытую ссылку\?$/);
   assert.match(page, /allow_any_student: allowAnyStudent/);
 });
 

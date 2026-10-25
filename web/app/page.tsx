@@ -1,62 +1,68 @@
 import Link from "next/link";
 import type { CSSProperties } from "react";
 import { PrepareIllustration, ResultsIllustration, ShareIllustration } from "./illustrations";
+import { Brand, BRAND_NAME } from "./brand";
+import { LanguageSwitcher } from "./language-switcher";
+import { getT } from "@/lib/i18n/server";
 
 // Stagger index for the entrance animation in motion.css.
 const order = (i: number) => ({ "--i": i }) as CSSProperties;
+const ILLUSTRATIONS = [PrepareIllustration, ShareIllustration, ResultsIllustration];
 
-export default function Home() {
+export default async function Home() {
+  const { t } = await getT();
+  const h = t.home;
   return (
     <div className="wrap home-page">
       <header className="topbar">
-        <Link className="brand" href="/">
-          <span className="brand-mark">A</span> AI Teacher
-        </Link>
-        <nav className="navlinks" aria-label="Основная навигация">
-          <Link className="btn ghost" href="/login">Войти</Link>
-          <Link className="btn primary" href="/login?mode=signup">Начать</Link>
+        <Brand />
+        <LanguageSwitcher />
+        <nav className="navlinks" aria-label={t.nav.main}>
+          <Link className="btn ghost" href="/login">{t.common.signIn}</Link>
+          <Link className="btn primary" href="/login?mode=signup">{t.common.start}</Link>
         </nav>
       </header>
 
       <main className="hero">
         <section className="hero-copy">
-          <div className="eyebrow enter" style={order(0)}>Рабочее пространство для учителя</div>
-          <h1 className="enter" style={order(1)}>Ваше время — <em>для учеников.</em> Не для проверки тестов.</h1>
-          <p className="enter" style={order(2)}>Создавайте четыре варианта, делитесь ссылкой с классом и смотрите результаты в одном месте. Без лишних вкладок и ручных таблиц.</p>
+          <div className="eyebrow enter" style={order(0)}>{h.eyebrow}</div>
+          <h1 className="enter" style={order(1)}>{h.titleBefore}<em>{h.titleEmphasis}</em>{h.titleAfter}</h1>
+          <p className="enter" style={order(2)}>{h.lead}</p>
           <div className="hero-actions enter" style={order(3)}>
-            <Link className="btn primary" href="/login?mode=signup">Начать работу <span aria-hidden="true">↗</span></Link>
-            <Link className="btn" href="/login">У меня есть аккаунт</Link>
+            <Link className="btn primary" href="/login?mode=signup">{h.startWork} <span aria-hidden="true">↗</span></Link>
+            <Link className="btn" href="/login">{h.haveAccount}</Link>
           </div>
-          <div className="hero-footnote enter" style={order(4)}><span className="hero-footnote-line" /> От идеи до готовой ссылки ученику</div>
+          <div className="hero-footnote enter" style={order(4)}><span className="hero-footnote-line" /> {h.footnote}</div>
         </section>
 
         <div className="hero-art enter" style={order(2)} aria-hidden="true">
           <div className="hero-orb hero-orb-one" />
           <div className="hero-orb hero-orb-two" />
           <div className="hero-preview">
-            <div className="hero-preview-top"><span className="hero-preview-brand"><span className="hero-preview-dot" /> AI Teacher</span><span>Рабочее пространство</span></div>
+            <div className="hero-preview-top"><span className="hero-preview-brand"><span className="hero-preview-dot" /> {BRAND_NAME}</span><span>{h.previewWorkspace}</span></div>
             <div className="hero-preview-body">
-              <div className="hero-preview-overline">НОВЫЙ ТЕСТ / 11 КЛАСС</div>
-              <div className="hero-preview-title">От темы к проверке знаний</div>
-              <div className="hero-preview-description">Четыре варианта. Один понятный процесс.</div>
-              <div className="hero-preview-options"><span>Вариант A</span><span>Вариант B</span><span>Вариант C</span><span>Вариант D</span></div>
-              <div className="hero-preview-question"><span className="hero-preview-index">01 / 05</span><strong>Вопрос готов к проверке</strong><span className="hero-preview-line" /><span className="hero-preview-line short" /></div>
+              <div className="hero-preview-overline">{h.previewOverline}</div>
+              <div className="hero-preview-title">{h.previewTitle}</div>
+              <div className="hero-preview-description">{h.previewDescription}</div>
+              <div className="hero-preview-options">{["A", "B", "C", "D"].map(letter => <span key={letter}>{t.labels.variant(letter)}</span>)}</div>
+              <div className="hero-preview-question"><span className="hero-preview-index">01 / 05</span><strong>{h.previewQuestion}</strong><span className="hero-preview-line" /><span className="hero-preview-line short" /></div>
             </div>
           </div>
-          <div className="hero-floating-card"><span>Результаты</span><strong>В одном месте</strong><span className="hero-floating-rule" /></div>
-          <div className="hero-art-caption">ПРИМЕР ИНТЕРФЕЙСА</div>
+          <div className="hero-floating-card"><span>{h.floatingLabel}</span><strong>{h.floatingValue}</strong><span className="hero-floating-rule" /></div>
+          <div className="hero-art-caption">{h.artCaption}</div>
         </div>
       </main>
 
-      <section className="home-process" aria-label="Как это работает">
-        <div className="home-process-head"><div className="eyebrow">Простой маршрут</div><h2>Меньше рутины.<br />Больше внимания классу.</h2></div>
+      <section className="home-process" aria-label={h.processLabel}>
+        <div className="home-process-head"><div className="eyebrow">{h.processEyebrow}</div><h2>{h.processTitleLine1}<br />{h.processTitleLine2}</h2></div>
         <div className="grid cols-3">
-          <div className="panel process-card scroll-reveal" style={order(0)}><PrepareIllustration className="process-illustration" /><span className="process-number">01</span><h3>Подготовьте</h3><p className="muted">Задайте тему, класс и язык. Проверьте вопросы перед публикацией.</p></div>
-          <div className="panel process-card scroll-reveal" style={order(1)}><ShareIllustration className="process-illustration" /><span className="process-number">02</span><h3>Отправьте</h3><p className="muted">Поделитесь ссылкой, настройте время и список допущенных учеников.</p></div>
-          <div className="panel process-card scroll-reveal" style={order(2)}><ResultsIllustration className="process-illustration" /><span className="process-number">03</span><h3>Увидьте результат</h3><p className="muted">Смотрите ответы и результаты в кабинете учителя.</p></div>
+          {h.steps.map((step, i) => {
+            const Illustration = ILLUSTRATIONS[i];
+            return <div className="panel process-card scroll-reveal" style={order(i)} key={step.title}><Illustration className="process-illustration" /><span className="process-number">{String(i + 1).padStart(2, "0")}</span><h3>{step.title}</h3><p className="muted">{step.text}</p></div>;
+          })}
         </div>
       </section>
-      <footer className="footer"><span>AI Teacher Test Generator</span><div className="row"><Link href="/privacy">Конфиденциальность</Link><Link href="/account">Face ID / Touch ID</Link></div></footer>
+      <footer className="footer"><span>{BRAND_NAME}</span><div className="row"><Link href="/privacy">{t.common.privacy}</Link><Link href="/account">{t.common.passkeys}</Link></div></footer>
     </div>
   );
 }

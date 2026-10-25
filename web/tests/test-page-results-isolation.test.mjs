@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
+const { ru } = await import("../lib/i18n/dictionaries/ru.ts");
 
 const page = await readFile(new URL("../app/tests/[id]/page.tsx", import.meta.url), "utf8");
 
@@ -21,7 +22,9 @@ test("results refresh, polling, and export failures are displayed in the results
   assert.match(page, /\.catch\(cause => setResultsError\(/);
   assert.match(page, /catch \(cause\) \{ setResultsError\(/);
   assert.match(page, /\{tab === "results" && <div className="stack">\{resultsError && <div className="error" role="alert">/);
-  assert.match(page, /Показанные ниже данные могут быть устаревшими/);
+  assert.match(page, /\{p\.resultsStale\}/);
+  assert.match(ru.testPage.resultsStale, /^Показанные ниже данные могут быть устаревшими/);
   assert.match(page, /disabled=\{!attempts\.length \|\| exporting \|\| Boolean\(resultsError\)\}/);
-  assert.match(page, /resultsError \? "Нет актуальных данных, так как обновление завершилось ошибкой\."/);
+  assert.match(page, /resultsError \? p\.noFreshData/);
+  assert.equal(ru.testPage.noFreshData, "Нет актуальных данных, так как обновление завершилось ошибкой.");
 });
