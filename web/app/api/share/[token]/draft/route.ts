@@ -3,28 +3,13 @@ import { actorFromRequest, jsonError } from "@/lib/auth";
 import { shareContext } from "@/lib/share";
 
 export async function PUT(request: NextRequest, { params }: { params: Promise<{ token: string }> }) {
-  // TEMPORARY staging profiling: per-step timings in Server-Timing.
-  const marks: string[] = []; let last = performance.now();
-  const mark = (name: string) => { const now = performance.now(); marks.push(`${name};dur=${Math.round(now - last)}`); last = now; };
-  const response = await handle(request, params, mark);
-  response.headers.set("Server-Timing", marks.join(", "));
-  return response;
-}
-
-async function handle(request: NextRequest, params: Promise<{ token: string }>, mark: (name: string) => void): Promise<Response> {
   const actor = await actorFromRequest(request);
-  mark("auth");
   if (!actor) return jsonError("Sign in with a student account.", 401);
   const { token } = await params;
   const context = await shareContext(token, actor);
-  mark("context");
   if ("error" in context && context.error) return jsonError(context.error, context.status);
   const { admin, link, test } = context;
-  const { data: prior, error: priorError } = await admin.from("web_attempts").select("id")
-    .eq("test_id", test.id).eq("student_id", actor.id).maybeSingle();
-  if (priorError) return jsonError("Could not check your submission status.", 503);
-  if (prior) return jsonError("This test was already submitted.", 409);
-  mark("prior");
+  // Both save RPCs check for a submitted attempt under the same lock as the write.
   let body: { answers?: unknown; question_id?: unknown; answer?: unknown };
   try { body = await request.json(); } catch { return jsonError("Invalid answers."); }
   const { settings } = context;
@@ -66,7 +51,6 @@ async function handle(request: NextRequest, params: Promise<{ token: string }>, 
     p_student_id: actor.id,
     p_answers: answers,
   });
-  mark("rpc");
   if (error) {
     console.error("Atomic draft save failed", error);
     return jsonError("Draft could not be saved. Please retry.", 503);

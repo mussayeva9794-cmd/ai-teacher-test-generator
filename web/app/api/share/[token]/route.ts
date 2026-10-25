@@ -104,7 +104,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
         locked: leaveLimitReached(settings, integrity?.leaves ?? 0),
         question_started: integrity?.question_started ?? {},
       },
-      server_now: new Date().toISOString(),
     } : {}),
+    server_now: new Date().toISOString(),
   });
 }

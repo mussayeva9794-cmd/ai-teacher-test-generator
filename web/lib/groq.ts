@@ -10,6 +10,9 @@ export type GenerateInput = {
   gradeLevel: string;
   objective: string;
   sourceText?: string;
+  sourceTitle?: string;
+  sourcePages?: string;
+  sourceUrl?: string;
   sources?: TestSource[];
 };
 
