@@ -14,7 +14,7 @@ import { useI18n } from "../i18n-provider";
 
 export default function Dashboard() {
   const router = useRouter();
-  const { t, intl } = useI18n();
+  const { t, date } = useI18n();
   const d = t.dashboard;
   const [tests, setTests] = useState<TestRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -46,6 +46,6 @@ export default function Dashboard() {
   return <div className="wrap"><TeacherHeader current="tests" limited={teacherOnly} />
     <section className="page-head"><div className="eyebrow">{d.eyebrow}</div><h1>{d.title}</h1><p className="muted">{d.lead}</p></section>
     {!teacherOnly && <div className="toolbar"><div className="tabs">{[["all",d.filterAll],["draft",d.filterDraft],["published",d.filterPublished],["archived",d.filterArchived]].map(([value,label]) => <button key={value} className={filter === value ? "active" : ""} onClick={() => setFilter(value)}>{label}{!loading && <span className="tab-count">{count(value)}</span>}</button>)}</div><Link className="btn primary" href="/create">{d.create}</Link></div>}
-    {loading ? <div className="panel">{d.loading}</div> : error ? <div className="error">{error}</div> : visible.length ? <div className="grid cols-2 page-enter">{visible.map(test => <Link className="panel" href={`/tests/${test.id}`} key={test.id}><div className="row"><span className="eyebrow">{distinctTopic(test.topic, test.title)}</span><span className="pill">{t.status[test.status]}</span></div><h3 style={{ marginTop: 16 }}>{test.title}</h3><p className="muted small">{[test.grade_level, languageLabel(test.language), new Date(test.created_at).toLocaleDateString(intl)].filter(Boolean).join(" · ")}</p><span style={{ color: "var(--wine)", fontWeight: 700 }}>{d.open}</span></Link>)}</div> : <div className="panel soft empty-state page-enter draw-in"><EmptyIllustration /><div><h3>{d.emptyTitle}</h3><p className="muted">{d.emptyText}</p><Link className="btn primary" href="/create">{d.createFirst}</Link></div></div>}
+    {loading ? <div className="panel">{d.loading}</div> : error ? <div className="error">{error}</div> : visible.length ? <div className="grid cols-2 page-enter">{visible.map(test => <Link className="panel" href={`/tests/${test.id}`} key={test.id}><div className="row"><span className="eyebrow">{distinctTopic(test.topic, test.title)}</span><span className="pill">{t.status[test.status]}</span></div><h3 style={{ marginTop: 16 }}>{test.title}</h3><p className="muted small">{[test.grade_level, languageLabel(test.language), date(test.created_at)].filter(Boolean).join(" · ")}</p><span style={{ color: "var(--wine)", fontWeight: 700 }}>{d.open}</span></Link>)}</div> : <div className="panel soft empty-state page-enter draw-in"><EmptyIllustration /><div><h3>{d.emptyTitle}</h3><p className="muted">{d.emptyText}</p><Link className="btn primary" href="/create">{d.createFirst}</Link></div></div>}
   </div>;
 }

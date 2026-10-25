@@ -122,3 +122,15 @@ test("pages render text only through the dictionaries", () => {
   const offenders = pages.filter((file) => /[А-Яа-яЁё]/.test(readFileSync(file, "utf8").replace(/<option value="(russian|kazakh|english)">[^<]+<\/option>/g, "")));
   assert.deepEqual(offenders.map((file) => file.slice(root.length)), []);
 });
+
+test("Kazakh dates are spelled out instead of the browser's incomplete data", async () => {
+  const { formatDate } = await import("../lib/i18n/format.ts");
+  const when = new Date(2026, 9, 24, 14, 5);
+  assert.equal(formatDate("kk", when, "date"), "24.10.2026");
+  assert.equal(formatDate("kk", when, "dateTime"), "24.10.2026, 14:05");
+  assert.equal(formatDate("kk", when, "dayTime"), "24 қазан, 14:05");
+  assert.equal(formatDate("kk", when, "dayTimeLong"), "24 қазан, 14:05");
+  assert.match(formatDate("ru", when, "dayTimeLong"), /24 октября/);
+  assert.match(formatDate("en", when, "dayTimeLong"), /24 October/);
+  assert.equal(formatDate("kk", "not a date"), "");
+});

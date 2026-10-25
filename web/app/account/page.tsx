@@ -14,7 +14,7 @@ type Passkey = Awaited<ReturnType<typeof listPasskeys>>[number];
 
 export default function AccountPage() {
   const router = useRouter();
-  const { t, intl } = useI18n();
+  const { t, date } = useI18n();
   const a = t.account;
   const [email, setEmail] = useState("");
   const [passkeys, setPasskeys] = useState<Passkey[]>([]);
@@ -79,6 +79,6 @@ export default function AccountPage() {
       {error && <div className="error" role="alert">{error}</div>}{message && <div className="success" role="status">{message}</div>}
       <button className="btn primary" onClick={addPasskey} disabled={busy || loading}>{busy ? t.common.wait : a.add}</button>
       <h2>{a.mine}</h2>
-      {loading ? <p className="muted">{a.loading}</p> : passkeys.length ? passkeys.map(item => <div className="list-item row" key={item.id}><div><b>{item.friendly_name || a.defaultName}</b><p className="muted small">{a.addedOn(new Date(item.created_at).toLocaleDateString(intl))}</p></div><button className="btn" disabled={busy} onClick={() => removePasskey(item.id)}>{a.remove}</button></div>) : <p className="muted">{a.empty}</p>}
+      {loading ? <p className="muted">{a.loading}</p> : passkeys.length ? passkeys.map(item => <div className="list-item row" key={item.id}><div><b>{item.friendly_name || a.defaultName}</b><p className="muted small">{a.addedOn(date(item.created_at))}</p></div><button className="btn" disabled={busy} onClick={() => removePasskey(item.id)}>{a.remove}</button></div>) : <p className="muted">{a.empty}</p>}
     </main></div>;
 }

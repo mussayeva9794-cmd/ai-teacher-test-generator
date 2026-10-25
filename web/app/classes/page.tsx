@@ -14,7 +14,7 @@ function splitEmails(value: string) {
 
 export default function ClassesPage() {
   const router = useRouter();
-  const { t, intl } = useI18n();
+  const { t, date } = useI18n();
   const c = t.classes;
   const [classes, setClasses] = useState<ClassRow[]>([]);
   const [name, setName] = useState("");
@@ -101,7 +101,7 @@ export default function ClassesPage() {
     <section className="stack" style={{ marginTop: 24 }}>
       <h2>{c.yours}</h2>
       {loading ? <div className="panel">{c.loading}</div> : classes.length ? classes.map(row => <article className="panel stack" key={row.id}>
-        <div className="row"><div><div className="row" style={{ justifyContent: "flex-start" }}><h3>{row.name}</h3><span className="pill">{row.is_active ? c.active : c.archived}</span></div><p className="muted small">{c.membersLine(row.web_class_members.length, new Date(row.created_at).toLocaleDateString(intl))}</p></div><button className="btn ghost" disabled={busy} onClick={() => void setActive(row)}>{row.is_active ? c.archive : c.restore}</button></div>
+        <div className="row"><div><div className="row" style={{ justifyContent: "flex-start" }}><h3>{row.name}</h3><span className="pill">{row.is_active ? c.active : c.archived}</span></div><p className="muted small">{c.membersLine(row.web_class_members.length, date(row.created_at))}</p></div><button className="btn ghost" disabled={busy} onClick={() => void setActive(row)}>{row.is_active ? c.archive : c.restore}</button></div>
         {row.web_class_members.length ? <div className="stack" style={{ gap: 0 }}>{row.web_class_members.map(member => <div className="list-item row" key={member.id}><div><b>{member.email}</b><div className="muted small">{member.student_id ? c.linked : c.pending}</div></div><button className="btn ghost danger" disabled={busy || !row.is_active} onClick={() => void removeStudent(row.id, member.id)}>{c.remove}</button></div>)}</div> : <p className="muted small">{c.emptyRoster}</p>}
         {row.is_active && <div className="stack"><label className="field">{c.add}<textarea value={rosters[row.id] || ""} onChange={event => setRosters(current => ({ ...current, [row.id]: event.target.value }))} placeholder={c.addPlaceholder} /></label><div><button type="button" className="btn" disabled={busy || !splitEmails(rosters[row.id] || "").length} onClick={() => void addStudents(row.id)}>{c.addButton}</button></div></div>}
       </article>) : <div className="panel soft"><p className="muted">{c.none}</p></div>}
