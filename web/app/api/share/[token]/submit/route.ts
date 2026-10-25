@@ -11,8 +11,13 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   const context = await shareContext(token, actor);
   if ("error" in context && context.error) return jsonError(context.error, context.status);
   const { admin, link, test, settings, variant } = context;
-  const { data: prior, error: priorError } = await admin.from("web_attempts").select("id,percentage")
-    .eq("test_id", test.id).eq("student_id", actor.id).maybeSingle();
+  const loadDraft = () => admin.from("web_drafts")
+    .select("answers,updated_at").eq("link_id", link.id).eq("student_id", actor.id).maybeSingle();
+  // The first draft read does not depend on the prior-attempt check; run both at once.
+  const [{ data: prior, error: priorError }, firstDraft] = await Promise.all([
+    admin.from("web_attempts").select("id,percentage").eq("test_id", test.id).eq("student_id", actor.id).maybeSingle(),
+    loadDraft(),
+  ]);
   if (priorError) return jsonError("Could not check your submission status.", 503);
   if (prior) return Response.json({ submitted: true, percentage: settings.reveal_score ? prior.percentage : null });
   let body: { answers?: unknown };
@@ -34,8 +39,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   // Retry if an autosave completed between loading the draft and locking it in
   // the finalization RPC. The RPC decides expiry using the database clock.
   for (let retry = 0; retry < 3; retry += 1) {
-    const { data: draft, error: draftError } = await admin.from("web_drafts")
-      .select("answers,updated_at").eq("link_id", link.id).eq("student_id", actor.id).maybeSingle();
+    const { data: draft, error: draftError } = retry === 0 ? firstDraft : await loadDraft();
     if (draftError) return jsonError("Could not load your draft.", 503);
     if (!draft) return jsonError("Open the test before submitting.", 409);
     if (!isAnswersObject(draft.answers)) return jsonError("The saved draft is invalid.", 503);

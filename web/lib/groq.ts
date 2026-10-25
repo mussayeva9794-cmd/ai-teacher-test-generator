@@ -10,16 +10,22 @@ export type GenerateInput = {
   gradeLevel: string;
   objective: string;
   sourceText?: string;
+  sourceTitle?: string;
+  sourcePages?: string;
+  sourceUrl?: string;
   sources?: TestSource[];
 };
 
+export type GroqFailureReason = "configuration" | "authentication" | "rate_limit" | "timeout" | "upstream" | "invalid_response";
+
 export class GroqGenerationError extends Error {
-  constructor(
-    public readonly reason: "configuration" | "authentication" | "rate_limit" | "timeout" | "upstream" | "invalid_response",
-    message: string,
-    public readonly upstreamStatus?: number,
-  ) {
+  public readonly reason: GroqFailureReason;
+  public readonly upstreamStatus?: number;
+
+  constructor(reason: GroqFailureReason, message: string, upstreamStatus?: number) {
     super(message);
+    this.reason = reason;
+    this.upstreamStatus = upstreamStatus;
     this.name = "GroqGenerationError";
   }
 }
@@ -132,7 +138,21 @@ function toQuestion(
   };
 }
 
-async function requestVariant(input: GenerateInput, difficulty: string): Promise<TestVariant> {
+function reasoningEffort(): "low" | "medium" | "high" {
+  const value = process.env.GROQ_REASONING_EFFORT?.trim();
+  return value === "low" || value === "high" ? value : "medium";
+}
+
+// The 120b model wrote clearly more accurate questions in staging QA; the
+// smaller model stays as a fallback when the larger one is rate limited.
+const PRIMARY_MODEL = "openai/gpt-oss-120b";
+const FALLBACK_MODEL = "openai/gpt-oss-20b";
+
+function configuredModel(): string {
+  return process.env.GROQ_MODEL?.trim() || PRIMARY_MODEL;
+}
+
+async function requestVariant(input: GenerateInput, difficulty: string, model: string): Promise<TestVariant> {
   const apiKey = process.env.GROQ_API_KEY?.replace(/\s+/g, "");
   if (!apiKey) throw new GroqGenerationError("configuration", "GROQ_API_KEY is not configured.");
   const prompt = `Create ${input.count} UNIQUE ${input.type} school questions on "${input.topic}".
@@ -143,17 +163,21 @@ Return only a JSON object with title, instructions, questions. The questions arr
 question, correct_answer, explanation, skill_tag, source_reference. If a source was provided, source_reference must be a brief reference to the relevant heading, page, or passage from that source. If no source was provided, use an empty string. Multiple choice: 4 distinct options including
 correct_answer. True/false: use exactly ${TRUE_FALSE_OPTIONS[input.language].join(" and ")} and make correct_answer one of them. Matching: pairs array
 of objects with left and right plus correct_answer as an empty string. Short answer: concise model answer.
-Do not repeat questions, do not include unsupported facts, keep the answer unambiguous.`;
+Do not repeat questions, do not include unsupported facts, keep the answer unambiguous.
+Before answering, check every question: it is factually correct for this grade; exactly one option is correct and it equals correct_answer;
+every other option is clearly wrong; a negatively worded question ("NOT", "НЕ", "ЕМЕС") has exactly one option that does not fit;
+the explanation states why correct_answer is right and never contradicts it. Rewrite any question that fails a check.`;
   let response: Response;
   try {
     response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
       headers: { authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
       body: JSON.stringify({
-        model: process.env.GROQ_MODEL?.trim() || "openai/gpt-oss-20b",
+        model,
         temperature: 0.35,
         max_completion_tokens: 8192,
-        reasoning_effort: "low",
+        // "low" produced factual slips in live QA; teachers still review every question.
+        reasoning_effort: reasoningEffort(),
         include_reasoning: false,
         response_format: {
           type: "json_schema",
@@ -205,9 +229,15 @@ async function generateVariant(input: GenerateInput, difficulty: string): Promis
   let lastError: unknown;
   for (let attempt = 1; attempt <= generationAttempts(); attempt += 1) {
     try {
-      return await requestVariant(input, difficulty);
+      return await requestVariant(input, difficulty, configuredModel());
     } catch (error) {
       lastError = error;
+      const modelUnavailable = error instanceof GroqGenerationError && (error.reason === "rate_limit" ||
+        error.reason === "timeout" || (error.reason === "upstream" && error.upstreamStatus === 404));
+      if (modelUnavailable && configuredModel() !== FALLBACK_MODEL) {
+        console.warn("Groq primary model unavailable; using fallback", { difficulty, reason: error.reason });
+        return await requestVariant(input, difficulty, FALLBACK_MODEL);
+      }
       if (!(error instanceof GroqGenerationError) || error.reason !== "invalid_response") throw error;
       console.warn("Groq returned an incomplete variant", { difficulty, attempt });
     }

@@ -7,7 +7,7 @@ import { SubmittedCheck } from "../../illustrations";
 import { api } from "@/lib/client";
 import { type ClientEventKind } from "@/lib/integrity";
 import { browserClient } from "@/lib/supabase";
-import { variantLabel } from "@/lib/labels";
+import { studentMessage, variantLabel } from "@/lib/labels";
 import type { Question } from "@/lib/types";
 
 type StudentQuestion = Omit<Question, "correct_answer" | "explanation">;
@@ -81,8 +81,9 @@ export default function StudentPage() {
           setSubmitted(true);
           return;
         }
+        // Device clocks on school phones are often minutes off; count the timer on the server clock.
+        if (result.server_now) clockOffset.current = Date.parse(result.server_now) - Date.now();
         if (result.settings.strict_mode && result.integrity) {
-          if (result.server_now) clockOffset.current = Date.parse(result.server_now) - Date.now();
           setLeaves(result.integrity.leaves);
           setStrictIndex(result.strict_progress?.current_index || 0);
           setQuestionStartedAt(result.strict_progress?.question_started_at || null);
@@ -94,14 +95,14 @@ export default function StudentPage() {
         setTest(result); setAnswers(result.answers || {}); setStatus("Сохранено");
         latestAnswers.current = result.answers || {};
         lastSaved.current = JSON.stringify(result.answers || {}); loaded.current = true;
-      }).catch(cause => { if (active) setError(cause.message); });
+      }).catch(cause => { if (active) setError(studentMessage(cause.message)); });
     });
     return () => { active = false; };
   }, [router, token]);
 
   useEffect(() => {
     if (!test?.closes_at) return;
-    const update = () => setRemaining(Math.max(0, Math.ceil((Date.parse(test.closes_at!) - Date.now()) / 1000)));
+    const update = () => setRemaining(Math.max(0, Math.ceil((Date.parse(test.closes_at!) - (Date.now() + clockOffset.current)) / 1000)));
     update(); const timer = setInterval(update, 1000); return () => clearInterval(timer);
   }, [test?.closes_at]);
 
@@ -176,7 +177,7 @@ export default function StudentPage() {
       const wasLocked = Boolean(locked || result.locked);
       const wasExpired = Boolean(expired || result.expired) && !wasLocked;
       setPercentage(result.percentage); setTimeExpired(wasExpired); setLockedSubmission(wasLocked); setSubmissionWarning(wasExpired && !draftSaved); setSubmitted(true); setConfirming(false);
-    } catch (cause) { setError(cause instanceof Error ? cause.message : "Не удалось отправить ответы."); }
+    } catch (cause) { setError(cause instanceof Error ? studentMessage(cause.message) : "Не удалось отправить ответы."); }
     finally { setBusy(false); }
   }
 
@@ -280,7 +281,7 @@ export default function StudentPage() {
         setNow(Date.now());
       }
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Не удалось перейти к следующему вопросу.");
+      setError(cause instanceof Error ? studentMessage(cause.message) : "Не удалось перейти к следующему вопросу.");
     } finally {
       advancingQuestion.current = false;
     }

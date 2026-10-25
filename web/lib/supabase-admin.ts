@@ -1,5 +1,6 @@
 import "server-only";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { timedFetch } from "./server-fetch";
 
 export function adminClient(): SupabaseClient {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
@@ -7,5 +8,6 @@ export function adminClient(): SupabaseClient {
   if (!url || !key) throw new Error("Supabase server configuration is missing.");
   return createClient(url, key, {
     auth: { persistSession: false, autoRefreshToken: false },
+    global: { fetch: timedFetch },
   });
 }

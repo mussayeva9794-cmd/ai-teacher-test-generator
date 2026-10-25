@@ -174,7 +174,7 @@ export default function TestPage() {
     try { exportRows = (await api<AttemptsResponse>(`/api/tests/${id}/attempts?all=true`)).attempts; }
     catch (cause) { setResultsError(cause instanceof Error ? cause.message : "Не удалось загрузить все результаты для CSV."); setExporting(false); return; }
     const headers = ["Ученик", "Вариант", "Оценка (%)", "Сдано", "Уходов со страницы", "Вне теста (с)", "Вставок", "Копирований", "Автосдача"];
-    const csv = [headers, ...exportRows.map(a => [a.csv_student_name ?? a.student_name, variantLabel(a.variant_name), a.percentage ?? "Ожидает проверки", a.submitted_at, a.integrity?.leaves ?? "", a.integrity?.away_seconds ?? "", a.integrity?.pastes ?? "", a.integrity?.copies ?? "", a.integrity ? (a.integrity.auto_submitted ? "да" : "нет") : ""])]
+    const csv = [headers, ...exportRows.map(a => [a.csv_student_name ?? a.student_name, variantLabel(a.variant_name), a.percentage ?? "Ожидает проверки", new Date(a.submitted_at).toLocaleString("ru-RU", { dateStyle: "short", timeStyle: "short" }), a.integrity?.leaves ?? "", a.integrity?.away_seconds ?? "", a.integrity?.pastes ?? "", a.integrity?.copies ?? "", a.integrity ? (a.integrity.auto_submitted ? "да" : "нет") : ""])]
       .map(row => row.map(csvCell).join(",")).join("\n");
     const url = URL.createObjectURL(new Blob(["\ufeff", csv], { type: "text/csv;charset=utf-8" }));
     const anchor = document.createElement("a"); anchor.href = url; anchor.download = `results-${id}.csv`; anchor.click(); URL.revokeObjectURL(url); setExporting(false);

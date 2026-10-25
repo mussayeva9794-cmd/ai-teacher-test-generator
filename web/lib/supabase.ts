@@ -1,4 +1,5 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { timedFetch } from "./server-fetch";
 
 let client: SupabaseClient | null = null;
 
@@ -19,6 +20,7 @@ export function serverAuthClient(): SupabaseClient {
   if (!url || !key) throw new Error("Supabase public configuration is missing.");
   return createClient(url, key, {
     auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+    global: { fetch: timedFetch },
   });
 }
 
@@ -29,5 +31,6 @@ export function userClient(token: string): SupabaseClient {
   return createClient(url, key, {
     accessToken: async () => token,
     auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+    global: { fetch: timedFetch },
   });
 }
