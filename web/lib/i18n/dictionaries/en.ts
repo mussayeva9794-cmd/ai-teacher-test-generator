@@ -475,6 +475,7 @@ export const en: Dictionary = {
     statusSavedNow: "Saved just now",
     statusSaving: "Saving...",
     statusOffline: "No connection. Your latest answers are not saved; check your internet.",
+    statusOfflineKept: "No connection. Your answers are kept on this device and will be sent automatically when the internet is back — do not sign out.",
     submitFailed: "Could not submit your answers.",
     signOutFailed: "Could not sign out. Close the tab and tell your teacher.",
     lastAnswerFailed: "Could not save your last answer. Check your internet and try again.",
@@ -562,6 +563,13 @@ export const en: Dictionary = {
     trueFalseHint: "Circle the answer.",
     points: (n: number) => `Questions: ${n}`,
     chooseVariant: "Choose at least one variant.",
+  },
+  install: {
+    title: "Mugalim AI on your phone",
+    text: "Install the site as an app — it opens from the home screen with one tap, without the address bar.",
+    button: "Install the app",
+    ios: "On iPhone: tap “Share” at the bottom of Safari, then “Add to Home Screen”.",
+    dismiss: "Hide",
   },
   privacy: {
     eyebrow: "Mugalim AI",

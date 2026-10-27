@@ -133,3 +133,41 @@
 .source-head { flex-wrap: wrap; align-items: center; }
 .source-actions { gap: 8px; flex-wrap: wrap; }
 .source-actions .btn { padding: 9px 13px; font-size: .88rem; }
+
+/* Installed app */
+@media (display-mode: standalone) {
+  body { padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
+}
+.install-hint { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 14px; align-items: center; margin: 8px 0 24px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 18px; background: var(--surface); }
+.install-hint img { border-radius: 11px; }
+.install-hint p { margin: 2px 0 0; color: var(--muted); font-size: .88rem; line-height: 1.45; }
+.install-actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+@media (max-width: 560px) { .install-hint { grid-template-columns: auto minmax(0, 1fr); } .install-actions { grid-column: 1 / -1; justify-content: flex-start; } }
+
+/* Students: a calm dark theme when the device asks for it (teacher pages stay light). */
+@media (prefers-color-scheme: dark) {
+  :root:has(.student-shell) {
+    color-scheme: dark;
+    --ink: #f2ebe6; --paper: #151012; --surface: #211a1c; --line: #3b2f32; --muted: #b6aaa5;
+    --wine: #e0566b; --glass-solid: #241c1e; --glass-border: rgba(255, 255, 255, .08);
+  }
+  :root:has(.student-shell) body { background: linear-gradient(160deg, #1a1315 0%, #151012 60%, #120e10 100%); color: var(--ink); }
+  .student-shell .topbar { background: rgba(36, 28, 30, .86); border-color: var(--glass-border); box-shadow: none; }
+  .student-shell .footer { border-top-color: var(--line); }
+  .student-shell .panel, .student-shell .panel.soft { background: var(--surface); border-color: var(--line); box-shadow: none; }
+  .student-shell .btn { background: #2b2224; border-color: var(--line); color: var(--ink); box-shadow: none; }
+  .student-shell .btn.ghost { background: transparent; border-color: transparent; }
+  .student-shell .btn.primary { background: linear-gradient(145deg, #b3243c, #8e1429); border-color: #8e1429; color: #fff; }
+  .student-shell .option, .student-shell .match-row, .student-shell .order-list li > span { background: #2a2123; border-color: var(--line); color: var(--ink); }
+  .student-shell .option:has(input:checked) { background: #3a2026; border-color: var(--wine); }
+  .student-shell .field input, .student-shell .field textarea, .student-shell .field select, .student-shell .match-row select { background: #1b1517; border-color: #4a3b3e; color: var(--ink); }
+  .student-shell .notice { background: #2e2522; color: #e6d6c8; }
+  .student-shell .error { background: #3b1a20; color: #ffb4bf; }
+  .student-shell .success { background: #173226; color: #9fe0bf; }
+  .student-shell .progress { background: #3a2f31; }
+  .student-shell .watermark { color: #8d7f7a; }
+  .student-shell .lang-switch select { color: var(--ink); border-color: var(--line); }
+  .student-shell .strict-watermark { color: #f2ebe6; opacity: .07; }
+  .student-shell .review-right .review-verdict { color: #7fd3a8; }
+  .student-shell .review-partly .review-verdict { color: #f0c46a; }
+}

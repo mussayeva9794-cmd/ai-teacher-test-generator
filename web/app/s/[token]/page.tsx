@@ -14,6 +14,7 @@ import { LanguageSwitcher } from "../../language-switcher";
 import { AnswerInput, type StudentQuestion } from "./answer-input";
 import { AnswerReview } from "./answer-review";
 import type { ReviewItem } from "@/lib/assessment";
+import { clearAllBackups, clearBackup, readBackup, restoreAnswers, saveBackup } from "@/lib/answer-backup";
 
 type StudentTest = {
   submitted: boolean; title: string; topic: string; variant_name: string; percentage?: number | null;
@@ -82,6 +83,7 @@ export default function StudentPage() {
   const fullscreenEnteredRef = useRef(false);
   const closingFullscreen = useRef(false);
   const [secondScreen, setSecondScreen] = useState(false);
+  const userId = useRef("");
   const [awaitingFullscreen, setAwaitingFullscreen] = useState<StudentTest | null>(null);
 
   const strict = Boolean(test?.settings.strict_mode);
@@ -92,6 +94,7 @@ export default function StudentPage() {
 
   function applyLoaded(result: StudentTest) {
     if (result.submitted) {
+      clearBackup(token, userId.current);
       setPercentage(result.percentage ?? null);
       setReview(Array.isArray(result.review) ? result.review : null);
       setSubmitted(true);
@@ -108,8 +111,11 @@ export default function StudentPage() {
       if (result.integrity.locked || result.strict_progress?.finished) timeoutSubmissionStarted.current = true;
       if (result.integrity.locked) setLockedSubmission(true);
     }
-    setTest(result); setAnswers(result.answers || {}); setStatus("saved");
-    latestAnswers.current = result.answers || {};
+    // Answers typed while offline survive a reload; the autosave then sends them.
+    const resumed = result.settings.strict_mode ? result.answers || {}
+      : restoreAnswers(result.answers || {}, result.saved_at, readBackup(token, userId.current), clockOffset.current);
+    setTest(result); setAnswers(resumed); setStatus("saved");
+    latestAnswers.current = resumed;
     lastSaved.current = JSON.stringify(result.answers || {}); loaded.current = true;
   }
 
@@ -138,6 +144,7 @@ export default function StudentPage() {
       if (!active) return;
       if (!data.user) { router.replace(`/login?next=${encodeURIComponent(`/s/${token}`)}`); return; }
       setName(String(data.user.user_metadata?.display_name || data.user.email || ""));
+      userId.current = data.user.id;
       // Where full screen is possible, ask the server not to start a new
       // full-screen attempt yet; it answers awaiting_fullscreen in that case.
       const query = document.fullscreenEnabled ? "?start=after_fullscreen" : "";
@@ -215,6 +222,15 @@ export default function StudentPage() {
     };
   }, [answers, test, submitted, token]);
 
+  useEffect(() => {
+    if (status !== "offline" || submitted) return;
+    // Keep trying while offline, and at once when the browser says it is back.
+    const retry = () => { void saveLatestDraft().catch(() => undefined); };
+    window.addEventListener("online", retry);
+    const timer = setInterval(retry, 8000);
+    return () => { window.removeEventListener("online", retry); clearInterval(timer); };
+  }, [status, submitted]);
+
   async function finish(expired = false, locked = false) {
     if (!test) return;
     setBusy(true); setError("");
@@ -231,6 +247,7 @@ export default function StudentPage() {
         void document.exitFullscreen().catch(() => undefined);
       }
       setReview(Array.isArray(result.review) ? result.review : null);
+      clearBackup(token, userId.current);
       setPercentage(result.percentage); setTimeExpired(wasExpired); setLockedSubmission(wasLocked); setSubmissionWarning(wasExpired && !draftSaved); setSubmitted(true); setConfirming(false);
     } catch (cause) { setError(serverMessage(t, cause instanceof Error ? cause.message : "", st.submitFailed)); }
     finally { setBusy(false); }
@@ -239,6 +256,7 @@ export default function StudentPage() {
   async function signOutForNextStudent() {
     setBusy(true); setError("");
     try {
+      clearAllBackups();
       const { error: signOutError } = await browserClient().auth.signOut({ scope: "local" });
       if (signOutError) throw signOutError;
       router.replace(`/login?next=${encodeURIComponent(`/s/${token}`)}`);
@@ -405,6 +423,7 @@ export default function StudentPage() {
     setAnswers(current => {
       const next = { ...current, [question.id]: answer };
       latestAnswers.current = next;
+      if (!strict && userId.current) saveBackup(token, userId.current, next);
       return next;
     });
   }
@@ -414,7 +433,7 @@ export default function StudentPage() {
   const questionClosed = questionRemaining === 0;
   const watermark = test?.student_label || name || st.defaultName;
   const displayName = name || st.defaultName;
-  const statusText = { loading: st.statusLoading, saved: st.statusSaved, savedNow: st.statusSavedNow, saving: st.statusSaving, offline: st.statusOffline }[status];
+  const statusText = { loading: st.statusLoading, saved: st.statusSaved, savedNow: st.statusSavedNow, saving: st.statusSaving, offline: strict ? st.statusOffline : st.statusOfflineKept }[status];
   const clock = (seconds: number) => `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
   return <div className="student-shell"><header className="topbar"><Brand /><LanguageSwitcher /><nav className="navlinks"><button className="btn ghost" disabled={busy} onClick={() => void signOutForNextStudent()}>{st.switchAccount}</button><span className="watermark">{displayName}</span></nav></header>
     {submitted ? <main className="panel student-card" style={{ marginTop: "8vh", textAlign: "center" }}><div className="draw-in"><SubmittedCheck /></div><h1 style={{ fontSize: "2.3rem" }}>{lockedSubmission ? st.submittedLocked : timeExpired ? st.submittedTimeUp : st.submitted}</h1><p className="muted">{lockedSubmission ? st.submittedLockedText : timeExpired ? st.submittedTimeUpText : st.submittedText}</p>{submissionWarning && <div className="notice" role="status">{st.lastAnswerWarning}</div>}{percentage !== null && <p className="metric">{percentage}%</p>}<button className="btn primary" disabled={busy} onClick={() => void signOutForNextStudent()}>{st.handOver}</button><p className="small muted">{st.sharedDevice}</p>{review?.length ? <AnswerReview items={review} /> : null}</main> : awaitingFullscreen && !test ? <main className="stack"><section className="page-head"><div className="eyebrow">{variantLabel(awaitingFullscreen.variant_name, t)} / {awaitingFullscreen.topic}</div><h1 style={{ fontSize: "clamp(1.8rem,5vw,3rem)" }}>{awaitingFullscreen.title}</h1></section><div className="panel student-card stack fullscreen-gate"><h2>{st.fullscreenTitle}</h2><p className="muted">{st.fullscreenText}</p>{error && <p className="error">{error}</p>}<button className="btn primary" disabled={busy} onClick={() => void startAfterFullscreen()}>{st.fullscreenStart}</button></div></main> : error && !test ? <main className="panel student-card error">{error}</main> : !test ? <div className="panel">{st.loadingTest}</div> : <main className={strict ? "stack strict-test" : "stack"} onCopy={strict ? e => blockClipboard(e, "copy") : undefined} onCut={strict ? e => blockClipboard(e, "copy") : undefined} onPaste={strict ? e => blockClipboard(e, "paste") : undefined} onContextMenu={strict ? preventDefault : undefined} onDragStart={strict ? preventDefault : undefined} onDrop={strict ? preventDefault : undefined}><section className="page-head"><div className="eyebrow">{variantLabel(test.variant_name, t)} / {test.topic}</div><h1 style={{ fontSize: "clamp(1.8rem,5vw,3rem)" }}>{test.title}</h1><p className="muted">{test.variant.instructions}</p></section>

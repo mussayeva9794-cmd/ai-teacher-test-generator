@@ -2,6 +2,7 @@ import Link from "next/link";
 import type { CSSProperties } from "react";
 import { PrepareIllustration, ResultsIllustration, ShareIllustration } from "./illustrations";
 import { Brand, BRAND_NAME } from "./brand";
+import { InstallHint } from "./install-hint";
 import { LanguageSwitcher } from "./language-switcher";
 import { getT } from "@/lib/i18n/server";
 
@@ -22,6 +23,7 @@ export default async function Home() {
           <Link className="btn primary" href="/login?mode=signup">{t.common.start}</Link>
         </nav>
       </header>
+      <InstallHint />
 
       <main className="hero">
         <section className="hero-copy">
