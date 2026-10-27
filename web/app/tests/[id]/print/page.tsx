@@ -14,17 +14,20 @@ import { useT } from "../../../i18n-provider";
 // The sheet itself is printed in the language of the test, not of the interface.
 const SHEET_LOCALE = { russian: "ru", kazakh: "kk", english: "en" } as const;
 
+/** Letter for choice `i`, falling back to a number past the end of the alphabet given. */
+const choiceLabel = (letters: string, i: number) => letters[i] ?? String(i + 1);
+
 /** Right-hand matching items in the same sorted order students see. */
 const matchChoices = (question: Question) => (question.pairs || []).map(pair => pair.right).sort((a, b) => a.localeCompare(b));
 
 function correctLabel(question: Question, letters: string) {
   if (question.type === "matching") {
     const choices = matchChoices(question);
-    return (question.pairs || []).map((pair, i) => `${i + 1} — ${letters[choices.indexOf(pair.right)] ?? "?"}`).join(", ");
+    return (question.pairs || []).map((pair, i) => `${i + 1} — ${choiceLabel(letters, choices.indexOf(pair.right))}`).join(", ");
   }
   if (question.options) {
     const at = question.options.findIndex(option => option.trim().toLocaleLowerCase() === question.correct_answer.trim().toLocaleLowerCase());
-    return at >= 0 ? `${letters[at] ?? at + 1}) ${question.options[at]}` : question.correct_answer;
+    return at >= 0 ? `${choiceLabel(letters, at)}) ${question.options[at]}` : question.correct_answer;
   }
   return question.correct_answer;
 }
@@ -36,9 +39,9 @@ function Sheet({ title, name, variant, s }: { title: string; name: string; varia
     {variant.instructions && <p className="print-instructions">{variant.instructions}</p>}
     <ol className="print-questions">{variant.questions.map(question => <li key={question.id}>
       <p className="print-question">{question.question}</p>
-      {question.type === "multiple_choice" && <ul className="print-options">{question.options?.map((option, i) => <li key={i}><b>{pr.letters[i] ?? i + 1})</b> {option}</li>)}</ul>}
+      {question.type === "multiple_choice" && <ul className="print-options">{question.options?.map((option, i) => <li key={i}><b>{choiceLabel(pr.letters, i)})</b> {option}</li>)}</ul>}
       {question.type === "true_false" && <><p className="print-hint">{pr.trueFalseHint}</p><p className="print-tf">{question.options?.map((option, i) => <span key={i}>{option}</span>)}</p></>}
-      {question.type === "matching" && <><p className="print-hint">{pr.matchHint}</p><div className="print-match"><ol>{question.pairs?.map((pair, i) => <li key={i}><b>{i + 1}.</b> {pair.left} <i /></li>)}</ol><ul>{matchChoices(question).map((choice, i) => <li key={i}><b>{pr.letters[i] ?? i + 1})</b> {choice}</li>)}</ul></div></>}
+      {question.type === "matching" && <><p className="print-hint">{pr.matchHint}</p><div className="print-match"><ol>{question.pairs?.map((pair, i) => <li key={i}><b>{i + 1}.</b> {pair.left} <i /></li>)}</ol><ul>{matchChoices(question).map((choice, i) => <li key={i}><b>{choiceLabel(pr.letters, i)})</b> {choice}</li>)}</ul></div></>}
       {question.type === "short_answer" && <div className="print-lines"><i /><i /></div>}
     </li>)}</ol>
   </section>;

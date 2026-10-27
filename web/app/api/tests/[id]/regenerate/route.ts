@@ -6,11 +6,22 @@ import { userClient } from "@/lib/supabase";
 import { adminClient } from "@/lib/supabase-admin";
 import type { TestRow } from "@/lib/types";
 
-export const maxDuration = 120;
+// Same budget as full generation: one question can still go through retries and the fallback model.
+export const maxDuration = 300;
 
-// Variants A–C are written at fixed difficulties; the mixed variant D reuses
-// questions from all three, so its ids keep the original difficulty prefix.
+// Variants A–C are written at fixed difficulties. The mixed variant D takes
+// question N from easy, medium and hard in turn (see generateVariants), and a
+// replacement keeps the difficulty in its id prefix.
 const VARIANT_DIFFICULTY: Record<string, string> = { "Variant A": "easy", "Variant B": "medium", "Variant C": "hard" };
+const DIFFICULTIES = ["easy", "medium", "hard"];
+
+function questionDifficulty(variantName: string, questionId: string): string {
+  if (VARIANT_DIFFICULTY[variantName]) return VARIANT_DIFFICULTY[variantName];
+  const mixed = /^mixed-(\d+)$/.exec(questionId);
+  if (mixed) return DIFFICULTIES[(Number(mixed[1]) - 1) % 3];
+  const prefix = questionId.split("-")[0];
+  return DIFFICULTIES.includes(prefix) ? prefix : "medium";
+}
 const LANGUAGES = ["russian", "kazakh", "english"] as const;
 
 /**
@@ -38,7 +49,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   const saved = Array.isArray(variant?.questions) ? variant.questions.find((question) => question?.id === body.question_id) : undefined;
   if (!variant || !saved) return jsonError("Question not found.", 404);
   const language = (LANGUAGES as readonly string[]).includes(test.language) ? test.language as GenerateInput["language"] : "russian";
-  const difficulty = VARIANT_DIFFICULTY[body.variant_name] || saved.id.split("-")[0] || "medium";
+  const difficulty = questionDifficulty(body.variant_name, saved.id);
   const current = typeof body.question === "string" ? body.question.slice(0, 1000) : saved.question;
 
   const reservation = await reserveGenerationWindow(db);
@@ -52,7 +63,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       topic: test.topic, type: saved.type, language,
       gradeLevel: test.grade_level || "", objective: saved.skill_tag || "",
       avoid: [current, ...variant.questions.filter((item) => item.id !== saved.id).map((item) => item.question)],
-    }, ["easy", "medium", "hard"].includes(difficulty) ? difficulty : "medium");
+    }, difficulty);
     const taken = new Set(variant.questions.map((item) => item.id));
     let newId = "";
     do newId = `${difficulty}-r${crypto.randomUUID().slice(0, 8)}`; while (taken.has(newId));
