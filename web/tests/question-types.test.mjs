@@ -23,7 +23,8 @@ test("ordering scores the share of items in their right place", () => {
   assert.equal(score(["1/4", "1/3", "1/2", "1"]), 1);
   assert.equal(score(["1/3", "1/4", "1/2", "1"]), 0.5);
   assert.equal(score(["1", "1/2", "1/3", "1/4"]), 0);
-  assert.equal(score({}), 0);
+  // A non-list answer means the student never moved the items: the order shown counts.
+  assert.equal(score({}), score(scrambled(order.items, order.id)));
   assert.equal(grade(variant, { s1: ["2", "3"], o1: ["1/4", "1/3", "1/2", "1"] }).percentage, 100);
 });
 

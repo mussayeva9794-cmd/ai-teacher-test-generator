@@ -8,6 +8,8 @@ import type { Question, TestRow, TestVariant } from "@/lib/types";
 import { dictionaries, type Dictionary } from "@/lib/i18n/dictionaries";
 import { serverMessage } from "@/lib/i18n/server-message";
 import { variantLabel } from "@/lib/labels";
+import { scrambledOrder } from "@/lib/scramble";
+import { rubricIsStale } from "@/lib/rubric";
 import { TeacherHeader } from "../../../teacher-nav";
 import { useT } from "../../../i18n-provider";
 
@@ -17,21 +19,8 @@ const SHEET_LOCALE = { russian: "ru", kazakh: "kk", english: "en" } as const;
 /** Letter for choice `i`, falling back to a number past the end of the alphabet given. */
 const choiceLabel = (letters: string, i: number) => letters[i] ?? String(i + 1);
 
-/** Ordering items printed in a fixed shuffled order (per question) that is never the answer. */
-function scrambledItems(question: Question) {
-  const items = question.items || [];
-  if (items.length < 2) return [...items];
-  // A small seeded generator: the same question always prints the same way.
-  let seed = [...question.id].reduce((hash, char) => Math.imul(hash ^ char.charCodeAt(0), 16777619) >>> 0, 2166136261);
-  const next = () => { seed = Math.imul(seed ^ (seed >>> 15), 2246822507) >>> 0; seed ^= seed >>> 13; return seed / 4294967296; };
-  const result = [...items];
-  for (let i = result.length - 1; i > 0; i -= 1) {
-    const j = Math.floor(next() * (i + 1));
-    [result[i], result[j]] = [result[j], result[i]];
-  }
-  if (result.every((item, i) => item === items[i])) result.push(result.shift()!);
-  return result;
-}
+/** Ordering items in the same starting order students see online. */
+const scrambledItems = (question: Question) => scrambledOrder(question.items || [], question.id);
 
 /** Right-hand matching items in the same sorted order students see. */
 const matchChoices = (question: Question) => (question.pairs || []).map(pair => pair.right).sort((a, b) => a.localeCompare(b));
@@ -75,8 +64,9 @@ function Sheet({ title, name, variant, s }: { title: string; name: string; varia
 }
 
 function RubricTable({ variant, s }: { variant: TestVariant; s: Dictionary }) {
-  const assessment = variant.assessment!;
   const p = s.testPage;
+  // Rows for deleted tasks are left out; the screen warns that the table needs a look.
+  const assessment = { ...variant.assessment!, rows: variant.assessment!.rows.filter(row => row.task <= variant.questions.length) };
   return <table className="print-rubric">
     <caption>{p.rubricTitle(s.labels.assessmentKind[assessment.kind])}</caption>
     <thead><tr><th>{p.rubricCriterion}</th><th>{p.bloomLevel}</th><th>{p.rubricTask}</th><th>{p.rubricDescriptor}</th><th>{p.rubricPoints}</th></tr></thead>
@@ -111,6 +101,7 @@ export default function PrintPage() {
         <label className="option"><input type="checkbox" checked={withKey} onChange={e => setWithKey(e.target.checked)} />{pr.answerKey}</label>
         <div className="row"><Link className="btn ghost" href={`/tests/${id}`}>{pr.back}</Link><button className="btn primary" disabled={!names.length} onClick={() => window.print()}>{pr.print}</button></div>
         {!names.length && <p className="muted small">{pr.chooseVariant}</p>}
+        {names.some(name => test.variants[name].assessment && rubricIsStale(test.variants[name])) && <p className="notice small" role="status">{t.testPage.rubricStale}</p>}
       </div>}
     </div>
     {test && names.map(name => <Sheet key={name} title={test.title} name={name} variant={test.variants[name]} s={sheet} />)}

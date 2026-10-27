@@ -59,3 +59,10 @@ test("AI replacement works for questions not saved yet and suggestions move on",
   assert.match(suggest, /UUID\.test\(value\)/);
   assert.match(suggest, /if \(items\.length \+ mine\.length > MAX_ITEMS\) break;/);
 });
+
+test("the service worker's cache name follows the offline page, so edits reach installed apps", async () => {
+  const { createHash } = await import("node:crypto");
+  const page = readFileSync(new URL("../public/offline.html", import.meta.url));
+  const hash = createHash("sha256").update(page).digest("hex").slice(0, 10);
+  assert.match(read("../public/sw.js"), new RegExp(`const CACHE = "mugalim-offline-${hash}";`), "update CACHE in public/sw.js after editing offline.html");
+});

@@ -43,3 +43,22 @@ export function restoreAnswers(server: Record<string, unknown>, serverSavedAt: s
   if (Number.isFinite(savedAt) && backup.at + clockOffsetMs <= savedAt) return server;
   return { ...server, ...backup.answers };
 }
+
+// Long enough to survive a lost connection during a lesson, short enough not to linger.
+const MAX_AGE_MS = 12 * 60 * 60 * 1000;
+
+/**
+ * Remove copies left by other students on this device and any older than a
+ * school day, so a closed tab on a shared computer does not keep answers around.
+ */
+export function pruneBackups(currentUserId: string, now = Date.now()) {
+  try {
+    for (let i = window.localStorage.length - 1; i >= 0; i -= 1) {
+      const key = window.localStorage.key(i);
+      if (!key?.startsWith(PREFIX)) continue;
+      let at = 0;
+      try { at = Number((JSON.parse(window.localStorage.getItem(key) || "null") as Backup | null)?.at) || 0; } catch { /* unreadable */ }
+      if (!key.endsWith(`:${currentUserId}`) || now - at > MAX_AGE_MS) window.localStorage.removeItem(key);
+    }
+  } catch { /* blocked */ }
+}

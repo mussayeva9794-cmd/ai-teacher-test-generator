@@ -14,7 +14,7 @@ import { LanguageSwitcher } from "../../language-switcher";
 import { AnswerInput, type StudentQuestion } from "./answer-input";
 import { AnswerReview } from "./answer-review";
 import type { ReviewItem } from "@/lib/assessment";
-import { clearAllBackups, clearBackup, readBackup, restoreAnswers, saveBackup } from "@/lib/answer-backup";
+import { clearAllBackups, clearBackup, pruneBackups, readBackup, restoreAnswers, saveBackup } from "@/lib/answer-backup";
 
 type StudentTest = {
   submitted: boolean; title: string; topic: string; variant_name: string; percentage?: number | null;
@@ -151,6 +151,7 @@ export default function StudentPage() {
       if (!data.user) { router.replace(`/login?next=${encodeURIComponent(`/s/${token}`)}`); return; }
       setName(String(data.user.user_metadata?.display_name || data.user.email || ""));
       userId.current = data.user.id;
+      pruneBackups(data.user.id);
       // Where full screen is possible, ask the server not to start a new
       // full-screen attempt yet; it answers awaiting_fullscreen in that case.
       const query = document.fullscreenEnabled ? "?start=after_fullscreen" : "";

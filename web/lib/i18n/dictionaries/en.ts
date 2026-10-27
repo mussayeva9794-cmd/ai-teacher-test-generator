@@ -243,6 +243,7 @@ export const en: Dictionary = {
     progressFailed: "Could not load progress.",
     progressNone: "This class has not taken any of your tests yet.",
     progressLead: "Results across all your tests, oldest first. The arrow shows whether the score grew since the first test.",
+    progressTruncated: "Only the latest 100 tests are shown — older ones are left out.",
     progressStudent: "Student",
     progressAverage: "Average",
     progressTrend: "Trend",

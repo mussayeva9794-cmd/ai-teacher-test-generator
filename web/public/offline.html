@@ -14,7 +14,7 @@
   .mark { display: inline-grid; place-items: center; width: 56px; height: 56px; border-radius: 16px; background: var(--wine); color: #fff; font: 800 30px/1 Manrope, system-ui, sans-serif; }
   h1 { font-size: 1.6rem; letter-spacing: -.03em; margin: 18px 0 10px; }
   p { color: var(--muted); line-height: 1.6; margin: 0 0 22px; }
-  button { border: 0; border-radius: 12px; background: var(--wine); color: #fff; font: 700 1rem/1 inherit; padding: 14px 20px; cursor: pointer; min-height: 48px; }
+  button { border: 0; border-radius: 12px; background: var(--wine); color: #fff; font: inherit; font-size: 1rem; font-weight: 700; line-height: 1; padding: 14px 20px; cursor: pointer; min-height: 48px; }
 </style>
 </head>
 <body>
@@ -25,13 +25,21 @@
   <button id="retry" type="button">Попробовать снова</button>
 </main>
 <script>
-  // Same language choice as the site: the saved cookie, otherwise the browser language.
+  // Same language choice as the site: the saved cookie, otherwise the first of
+  // Kazakh or Russian among the browser's languages, otherwise Russian.
   var texts = {
     kk: ["Интернет байланысы жоқ", "Wi-Fi немесе мобильді интернетті тексеріңіз. Тест жазып жатсаңыз, сақталған жауаптар жоғалмайды — байланыс қалпына келгенде тестті қайта ашыңыз.", "Қайталап көру"],
     en: ["No internet connection", "Check Wi-Fi or mobile data. If you were taking a test, answers already saved are not lost — open the test again when the connection is back.", "Try again"]
   };
   var match = document.cookie.match(/(?:^|; )mugalim_lang=(kk|ru|en)/);
-  var lang = match ? match[1] : /^kk\b/i.test(navigator.language || "") ? "kk" : "ru";
+  var lang = match ? match[1] : "ru";
+  if (!match) {
+    var preferred = navigator.languages && navigator.languages.length ? navigator.languages : [navigator.language || ""];
+    for (var i = 0; i < preferred.length; i += 1) {
+      var base = String(preferred[i]).toLowerCase().split("-")[0];
+      if (base === "kk" || base === "ru") { lang = base; break; }
+    }
+  }
   if (texts[lang]) {
     document.documentElement.lang = lang;
     document.getElementById("title").textContent = texts[lang][0];

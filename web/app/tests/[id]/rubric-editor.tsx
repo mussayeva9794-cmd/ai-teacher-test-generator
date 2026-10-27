@@ -2,14 +2,14 @@
 
 import type { Assessment, TestVariant } from "@/lib/types";
 import type { Dictionary } from "@/lib/i18n/dictionaries";
+import { rubricIsStale } from "@/lib/rubric";
 
 /** The summative assessment (SOR / SOCh) table of one variant, editable in place. */
 export function RubricEditor({ t, variant, edit }: { t: Dictionary; variant: TestVariant; edit: (mutator: (assessment: Assessment) => void) => void }) {
   const p = t.testPage;
   const assessment = variant.assessment!;
   const total = assessment.rows.reduce((sum, row) => sum + row.points, 0);
-  const tasks = new Set(assessment.rows.map(row => row.task));
-  const stale = assessment.rows.some(row => row.task > variant.questions.length) || variant.questions.some((_, i) => !tasks.has(i + 1));
+  const stale = rubricIsStale(variant);
   return <section className="panel stack rubric">
     <div><div className="eyebrow">{t.labels.assessmentKind[assessment.kind]}</div><h3 style={{ margin: "6px 0" }}>{p.rubricTitle(t.labels.assessmentKind[assessment.kind])}</h3><p className="muted small" style={{ margin: 0 }}>{p.rubricLead}</p></div>
     {stale && <p className="notice small" role="status">{p.rubricStale}</p>}

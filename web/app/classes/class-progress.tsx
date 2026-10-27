@@ -12,7 +12,7 @@ const tone = (value: number) => value >= 85 ? "right" : value >= 50 ? "partly" :
 export function ClassProgress({ classId }: { classId: string }) {
   const t = useT();
   const c = t.classes;
-  const [data, setData] = useState<{ columns: ProgressTest[]; rows: ProgressRow[] } | null>(null);
+  const [data, setData] = useState<{ columns: ProgressTest[]; rows: ProgressRow[]; truncated?: boolean } | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -29,6 +29,7 @@ export function ClassProgress({ classId }: { classId: string }) {
     {error && <p className="error small" role="alert">{error}</p>}
     {data && (data.columns.length ? <>
       <p className="muted small" style={{ margin: 0 }}>{c.progressLead}</p>
+      {data.truncated && <p className="notice small" role="status">{c.progressTruncated}</p>}
       <div className="heat-scroll" tabIndex={0} aria-label={c.progress}>
         <table className="heatmap progress-table">
           <thead><tr><th scope="col">{c.progressStudent}</th>{data.columns.map((test, i) => <th scope="col" key={test.id} title={test.title}>{i + 1}</th>)}<th scope="col">{c.progressAverage}</th><th scope="col">{c.progressTrend}</th></tr></thead>

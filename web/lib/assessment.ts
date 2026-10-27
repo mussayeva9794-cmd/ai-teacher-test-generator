@@ -3,6 +3,7 @@ import type { Question, ShareSettings, TestVariant } from "./types";
 import { isValidVariant } from "./question-validation";
 import { answerText, correctText } from "./answer-format";
 import { needsTeacher, questionScore, shownScore } from "./scoring";
+import { scrambledOrder } from "./scramble";
 
 export { isValidVariant };
 
@@ -47,10 +48,7 @@ export function studentVariant(variant: TestVariant) {
 
 /** A fixed shuffle per question that never equals the correct order. */
 export function scrambled(items: string[], seed: string): string[] {
-  if (items.length < 2) return [...items];
-  const result = shuffle(items, `${seed}:items`);
-  if (result.every((item, i) => item === items[i])) result.push(result.shift()!);
-  return result;
+  return scrambledOrder(items, seed);
 }
 
 /**
