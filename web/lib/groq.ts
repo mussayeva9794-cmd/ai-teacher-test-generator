@@ -1,6 +1,7 @@
 import type { Question, QuestionType, TestSource, TestVariant } from "./types";
 import { isValidVariant } from "./assessment";
 import { networkErrorCode } from "./network-error";
+import { TRUE_FALSE_OPTIONS } from "./true-false";
 
 export type GenerateInput = {
   topic: string;
@@ -14,6 +15,8 @@ export type GenerateInput = {
   sourcePages?: string;
   sourceUrl?: string;
   sources?: TestSource[];
+  // Questions the new ones must not repeat (used when replacing one question).
+  avoid?: string[];
 };
 
 export type GroqFailureReason = "configuration" | "authentication" | "rate_limit" | "timeout" | "upstream" | "invalid_response";
@@ -29,12 +32,6 @@ export class GroqGenerationError extends Error {
     this.name = "GroqGenerationError";
   }
 }
-
-const TRUE_FALSE_OPTIONS = {
-  russian: ["Верно", "Неверно"],
-  kazakh: ["Дұрыс", "Бұрыс"],
-  english: ["True", "False"],
-} as const;
 
 function generationAttempts(): number {
   const configured = Number(process.env.MAX_GENERATION_ATTEMPTS || 2);
@@ -164,6 +161,7 @@ question, correct_answer, explanation, skill_tag, source_reference. If a source 
 correct_answer. True/false: use exactly ${TRUE_FALSE_OPTIONS[input.language].join(" and ")} and make correct_answer one of them. Matching: pairs array
 of objects with left and right plus correct_answer as an empty string. Short answer: concise model answer.
 Do not repeat questions, do not include unsupported facts, keep the answer unambiguous.
+${input.avoid?.length ? `The test already has these questions; write a different one that checks the same skill, and do not repeat or paraphrase any of them: ${input.avoid.map((text) => JSON.stringify(text.slice(0, 300))).join("; ")}` : ""}
 Before answering, check every question: it is factually correct for this grade; exactly one option is correct and it equals correct_answer;
 every other option is clearly wrong; a negatively worded question ("NOT", "НЕ", "ЕМЕС") has exactly one option that does not fit;
 the explanation states why correct_answer is right and never contradicts it. Rewrite any question that fails a check.`;
@@ -263,4 +261,10 @@ export async function generateVariants(input: GenerateInput): Promise<Record<str
     sources: input.sources,
   };
   return { "Variant A": easy, "Variant B": medium, "Variant C": hard, "Variant D": mixed };
+}
+
+/** One fresh question for the teacher editor's "replace" action. */
+export async function generateQuestion(input: Omit<GenerateInput, "count">, difficulty: string): Promise<Question> {
+  const variant = await generateVariant({ ...input, count: 1, avoid: input.avoid?.slice(0, 50) }, difficulty);
+  return variant.questions[0];
 }

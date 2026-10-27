@@ -1,61 +1,8 @@
 import { createHash } from "node:crypto";
 import type { Question, ShareSettings, TestVariant } from "./types";
+import { isValidVariant } from "./question-validation";
 
-export function isValidVariant(value: unknown): value is TestVariant {
-  if (!value || typeof value !== "object") return false;
-  const variant = value as Partial<TestVariant>;
-  if (typeof variant.title !== "string" || !variant.title.trim() || !Array.isArray(variant.questions) ||
-    variant.questions.length === 0 || variant.questions.length > 50) return false;
-
-  if (variant.sources !== undefined && (!Array.isArray(variant.sources) || variant.sources.length > 8 ||
-    !variant.sources.every((source) => {
-      if (!source || typeof source !== "object") return false;
-      const item = source as { label?: unknown; pages?: unknown; url?: unknown };
-      if (typeof item.label !== "string" || !item.label.trim() || item.label.length > 180) return false;
-      if (item.pages !== undefined && (typeof item.pages !== "string" || item.pages.length > 120)) return false;
-      if (item.url !== undefined) {
-        if (typeof item.url !== "string") return false;
-        try { if (new URL(item.url).protocol !== "https:") return false; } catch { return false; }
-      }
-      return true;
-    }))) return false;
-
-  return variant.questions.every((value) => {
-    if (!value || typeof value !== "object") return false;
-    const question = value as Partial<Question>;
-    if (typeof question.id !== "string" || !question.id.trim() || typeof question.question !== "string" ||
-      !question.question.trim() || typeof question.correct_answer !== "string" ||
-      !["multiple_choice", "true_false", "short_answer", "matching"].includes(question.type || "") ||
-      (question.source_reference !== undefined && (typeof question.source_reference !== "string" || question.source_reference.length > 320))) return false;
-
-    if (question.type === "multiple_choice" || question.type === "true_false") {
-      if (!Array.isArray(question.options)) return false;
-      // Legacy teacher-authored tests may have two or three choices. Reject a
-      // one-choice question, but do not invalidate an already published test.
-      const requiredCount = 2;
-      const options = question.options;
-      if (options.length < requiredCount || !options.every((option) => typeof option === "string" && Boolean(option.trim()))) return false;
-      const normalizedOptions = options.map((option) => option.trim().toLocaleLowerCase());
-      return new Set(normalizedOptions).size === options.length && normalizedOptions.includes(question.correct_answer.trim().toLocaleLowerCase());
-    }
-
-    if (question.type === "matching") {
-      if (!Array.isArray(question.pairs) || question.pairs.length < 2) return false;
-      const left = new Set<string>();
-      const right = new Set<string>();
-      return question.pairs.every((pair) => {
-        if (!pair || typeof pair.left !== "string" || typeof pair.right !== "string" || !pair.left.trim() || !pair.right.trim()) return false;
-        const normalizedLeft = pair.left.trim().toLocaleLowerCase();
-        const normalizedRight = pair.right.trim().toLocaleLowerCase();
-        if (left.has(normalizedLeft) || right.has(normalizedRight)) return false;
-        left.add(normalizedLeft); right.add(normalizedRight);
-        return true;
-      });
-    }
-
-    return Boolean(question.correct_answer.trim());
-  });
-}
+export { isValidVariant };
 
 function shuffle<T>(items: T[], seed: string): T[] {
   const result = [...items];
@@ -87,6 +34,9 @@ export function studentVariant(variant: TestVariant) {
       ...question,
       // Matching rows are rendered from the left side only; never send the answer mapping to students.
       pairs: question.pairs?.map(({ left }) => ({ left, right: "" })),
+      // The right-hand choices go out sorted on their own, so their order says
+      // nothing about which left item each one belongs to.
+      match_options: question.pairs ? question.pairs.map(({ right }) => right).sort((a, b) => a.localeCompare(b)) : undefined,
     })),
   };
 }
@@ -147,6 +97,8 @@ export function parseSettings(value: unknown): ShareSettings {
     reveal_score: source.reveal_score === true,
     strict_mode: strict,
     leave_limit: source.leave_limit === null ? null : Number.isFinite(leaveLimit) ? Math.max(0, Math.min(5, leaveLimit)) : 2,
+    // Links created before this setting existed keep their original behaviour.
+    require_fullscreen: strict && source.require_fullscreen === true,
     question_seconds: Number.isFinite(questionSeconds) && questionSeconds > 0 ? Math.max(15, Math.min(600, questionSeconds)) : 0,
   };
 }

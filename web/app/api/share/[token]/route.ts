@@ -93,6 +93,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     settings: {
       one_question_at_a_time: settings.one_question_at_a_time, reveal_score: settings.reveal_score,
       strict_mode: settings.strict_mode, leave_limit: settings.leave_limit, question_seconds: settings.question_seconds,
+      require_fullscreen: settings.require_fullscreen,
     },
     answers: draft.answers || {}, closes_at: closesAt, saved_at: draft.updated_at, expired,
     ...(strictProgress ? { question_count: student.questions.length, strict_progress: strictProgress } : {}),

@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { releaseGenerationWindow, reserveGenerationWindow } from "../lib/generation-quota.ts";
 
 const migration = readFileSync(new URL("../supabase_generation_quota_window_refund.sql", import.meta.url), "utf8");
 const route = readFileSync(new URL("../app/api/generate/route.ts", import.meta.url), "utf8");
@@ -26,10 +27,23 @@ test("refund locks and changes only the DB-returned reservation window", () => {
 });
 
 test("generation fails closed without a reservation and refunds on both failure paths", () => {
-  assert.match(route, /db\.rpc\("consume_web_generation_quota_v2"\)/);
-  assert.match(route, /if \(error \|\| \(data !== null && typeof data !== "string"\)\)/);
-  assert.match(route, /reservationWindow = data/);
-  assert.match(route, /if \(reservationWindow === null\) return jsonError\([\s\S]*?, 429\)/);
-  assert.match(route, /adminClient\(\)\.rpc\("release_web_generation_quota_v2",\s*\{\s*p_owner_id: actor\.id, p_window_start: reservationWindow/);
+  assert.match(route, /const reservation = await reserveGenerationWindow\(db\)/);
+  assert.match(route, /if \(reservation\.status !== "allowed"\)[\s\S]*?429\)[\s\S]*?503\)/);
+  assert.match(route, /releaseGenerationWindow\(adminClient\(\), actor\.id, window\)/);
   assert.equal((route.match(/await releaseQuota\(\)/g) || []).length, 2);
+});
+
+test("the reservation helper returns only the DB-issued window and fails closed", async () => {
+  const calls = [];
+  const ok = { rpc: async (...args) => { calls.push(args); return { data: "2026-10-27T10:00:00+00:00", error: null }; } };
+  assert.deepEqual(await reserveGenerationWindow(ok), { status: "allowed", window: "2026-10-27T10:00:00+00:00" });
+  assert.deepEqual(calls, [["consume_web_generation_quota_v2"]]);
+  assert.deepEqual(await reserveGenerationWindow({ rpc: async () => ({ data: null, error: null }) }), { status: "limited" });
+  assert.deepEqual(await reserveGenerationWindow({ rpc: async () => ({ data: true, error: null }) }), { status: "unavailable" });
+  assert.deepEqual(await reserveGenerationWindow({ rpc: async () => ({ data: null, error: { code: "42883" } }) }), { status: "unavailable" });
+  assert.deepEqual(await reserveGenerationWindow({ rpc: async () => { throw new Error("network"); } }), { status: "unavailable" });
+
+  const released = [];
+  await releaseGenerationWindow({ rpc: async (...args) => { released.push(args); return { error: null }; } }, "teacher-id", "w1");
+  assert.deepEqual(released, [["release_web_generation_quota_v2", { p_owner_id: "teacher-id", p_window_start: "w1" }]]);
 });

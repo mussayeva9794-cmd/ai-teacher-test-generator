@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 import "./glass.css";
 import "./motion.css";
+import "./features.css";
 import { I18nProvider } from "./i18n-provider";
 import { getT } from "@/lib/i18n/server";
 

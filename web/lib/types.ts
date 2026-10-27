@@ -39,6 +39,9 @@ export type ShareSettings = {
   strict_mode: boolean;
   leave_limit: number | null;
   question_seconds: number;
+  // Strict mode only: the test is shown in full screen where the browser
+  // supports it, and leaving full screen counts as a leave.
+  require_fullscreen: boolean;
 };
 
 export type ClassRow = {

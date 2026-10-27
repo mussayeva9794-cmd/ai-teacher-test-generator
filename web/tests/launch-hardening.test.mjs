@@ -251,7 +251,7 @@ test("generation failures release reserved quota and health checks require the c
   assert.doesNotMatch(releaseFunction, /attempt_count = attempt_count - 1[\s\S]*delete from public\.web_generation_quota/i);
   assert.match(migration, /revoke all on function public\.release_web_generation_quota\(uuid\) from public, anon, authenticated, service_role/i);
   assert.match(migration, /grant execute on function public\.release_web_generation_quota\(uuid\) to service_role/i);
-  assert.match(generateRoute, /adminClient\(\)\.rpc\("release_web_generation_quota_v2",\s*\{\s*p_owner_id: actor\.id, p_window_start: reservationWindow/);
+  assert.match(generateRoute, /releaseGenerationWindow\(adminClient\(\), actor\.id, window\)/);
   assert.match(readFileSync(fileURLToPath(new URL("../lib/supabase-admin.ts", import.meta.url)), "utf8"), /^import "server-only";/);
   assert.equal((generateRoute.match(/await releaseQuota\(\)/g) || []).length, 2);
   assert.match(healthWorkflow, /\.groq_model_available == true/);
