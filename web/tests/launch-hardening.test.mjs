@@ -58,9 +58,11 @@ test("post-login destination rejects protocol-relative and backslash-based exter
 test("a resubmitted share link only exposes a grade when the teacher enabled score reveal", () => {
   const shareRoute = readFileSync(fileURLToPath(new URL("../app/api/share/[token]/route.ts", import.meta.url)), "utf8");
   const studentPage = readFileSync(fileURLToPath(new URL("../app/s/[token]/page.tsx", import.meta.url)), "utf8");
-  assert.match(shareRoute, /select\("id,percentage,answers,result"\)/);
+  assert.match(shareRoute, /select\("id,link_id,percentage,answers,result"\)/);
   // Answers come back only when the teacher allowed the review.
-  assert.match(shareRoute, /\.\.\.\(settings\.reveal_answers \? \{\s*review: answerReview\(/);
+  assert.match(shareRoute, /\.\.\.\(settings\.reveal_answers && prior\.link_id === link\.id \? \{\s*review: answerReview\(/);
+  const submitRoute = readFileSync(fileURLToPath(new URL("../app/api/share/[token]/submit/route.ts", import.meta.url)), "utf8");
+  assert.match(submitRoute, /settings\.reveal_answers && attempt && attempt\.link_id === link\.id/);
   assert.match(shareRoute, /percentage:\s*settings\.reveal_score\s*\?\s*prior\.percentage\s*:\s*null/);
   assert.match(studentPage, /setPercentage\(result\.percentage \?\? null\)/);
 });

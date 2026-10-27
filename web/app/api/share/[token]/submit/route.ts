@@ -15,13 +15,15 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     .select("answers,updated_at").eq("link_id", link.id).eq("student_id", actor.id).maybeSingle();
   // The first draft read does not depend on the prior-attempt check; run both at once.
   const [{ data: prior, error: priorError }, firstDraft] = await Promise.all([
-    admin.from("web_attempts").select("id,percentage,answers,result").eq("test_id", test.id).eq("student_id", actor.id).maybeSingle(),
+    admin.from("web_attempts").select("id,link_id,percentage,answers,result").eq("test_id", test.id).eq("student_id", actor.id).maybeSingle(),
     loadDraft(),
   ]);
   if (priorError) return jsonError("Could not check your submission status.", 503);
   const ordered = personalizedVariant(variant, token, actor.id, settings.randomize);
   // The review is only ever built from an attempt that is already stored.
-  const reviewOf = (attempt: { answers?: unknown; result?: unknown } | null) => settings.reveal_answers && attempt
+  // Only for an attempt made through this very link: another link of the same
+  // test may hold a different variant whose answers this student never saw.
+  const reviewOf = (attempt: { link_id?: unknown; answers?: unknown; result?: unknown } | null) => settings.reveal_answers && attempt && attempt.link_id === link.id
     ? { review: answerReview(ordered, (attempt.answers || {}) as Record<string, unknown>, attempt.result) } : {};
   if (prior) return Response.json({ submitted: true, percentage: settings.reveal_score ? prior.percentage : null, ...reviewOf(prior) });
   let body: { answers?: unknown };
@@ -91,9 +93,9 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       });
       if (eventError) console.error("Integrity event insert failed", { code: eventError.code });
     }
-    let stored: { answers?: unknown; result?: unknown } | null = null;
+    let stored: { link_id?: unknown; answers?: unknown; result?: unknown } | null = null;
     if (settings.reveal_answers) {
-      const { data: attempt, error: attemptError } = await admin.from("web_attempts").select("answers,result")
+      const { data: attempt, error: attemptError } = await admin.from("web_attempts").select("link_id,answers,result")
         .eq("test_id", test.id).eq("student_id", actor.id).maybeSingle();
       if (attemptError) console.error("Submitted attempt reload failed", { code: attemptError.code });
       stored = attempt;

@@ -12,14 +12,16 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   const context = await shareContext(token, actor);
   if ("error" in context && context.error) return jsonError(context.error, context.status);
   const { admin, test, link, settings, variant } = context;
-  const { data: prior, error: priorError } = await admin.from("web_attempts").select("id,percentage,answers,result")
+  const { data: prior, error: priorError } = await admin.from("web_attempts").select("id,link_id,percentage,answers,result")
     .eq("test_id", test.id).eq("student_id", actor.id).maybeSingle();
   if (priorError) return jsonError("Could not check your submission status.", 503);
   if (prior) return Response.json({
     submitted: true,
     title: test.title,
     percentage: settings.reveal_score ? prior.percentage : null,
-    ...(settings.reveal_answers ? {
+    // Only for an attempt made through this very link: another link of the same
+    // test may hold a different variant whose answers this student never saw.
+    ...(settings.reveal_answers && prior.link_id === link.id ? {
       review: answerReview(personalizedVariant(variant, token, actor.id, settings.randomize), (prior.answers || {}) as Record<string, unknown>, prior.result),
     } : {}),
   });
