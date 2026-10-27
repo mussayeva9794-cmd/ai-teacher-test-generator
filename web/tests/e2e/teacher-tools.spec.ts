@@ -131,3 +131,41 @@ test("an open link can be shown as a large QR code", async ({ page }) => {
   await page.keyboard.press("Escape");
   await expect(dialog).toHaveCount(0);
 });
+
+test("saving while a question is being replaced cannot drop the new question", async ({ page }) => {
+  const { saves } = await openTeacherTest(page);
+  let releaseRegeneration: () => void = () => undefined;
+  await page.route(`**/api/tests/${TEST_ID}/regenerate`, async route => {
+    await new Promise<void>(resolve => { releaseRegeneration = resolve; });
+    await route.fulfill({ json: { question: { id: "easy-rnew", type: "short_answer", question: "Новый вопрос", correct_answer: "0,5", explanation: "", skill_tag: "дроби" } } });
+  });
+  await page.locator(".question-editor").first().getByLabel("Объяснение").fill("Правка до замены");
+  page.once("dialog", dialog => void dialog.accept());
+  await page.locator(".question-editor").nth(1).getByRole("button", { name: "Заменить через ИИ" }).click();
+  await expect(page.getByRole("button", { name: "Сохранить" })).toBeDisabled();
+  releaseRegeneration();
+  await expect(page.locator(".question-editor").nth(1).getByLabel("Формулировка")).toHaveValue("Новый вопрос");
+  await page.getByRole("button", { name: "Сохранить" }).click();
+  await expect.poll(() => saves.length).toBe(1);
+  expect(saves[0].variants["Variant A"].questions.map(question => question.id)).toEqual(["easy-A1", "easy-rnew"]);
+});
+
+test("a question added while a save is in flight stays unsaved, not lost", async ({ page }) => {
+  await openTeacherTest(page);
+  let releaseSave: () => void = () => undefined;
+  await page.route(`**/api/tests/${TEST_ID}`, async route => {
+    if (route.request().method() !== "PATCH") return route.fallback();
+    await new Promise<void>(resolve => { releaseSave = resolve; });
+    await route.fulfill({ json: { test: { id: TEST_ID, status: "published" } } });
+  });
+  await page.locator(".question-editor").first().getByLabel("Объяснение").fill("Первая правка");
+  await page.getByRole("button", { name: "Сохранить" }).click();
+  // While saving, adding is blocked; once the save lands the editor keeps the newer state.
+  await expect(page.getByRole("button", { name: "Добавить вопрос" })).toBeDisabled();
+  releaseSave();
+  await expect(page.getByText("Все изменения сохранены")).toBeVisible();
+  await page.getByRole("button", { name: "Добавить вопрос" }).click();
+  await expect(page.locator(".question-editor")).toHaveCount(3);
+  await expect(page.getByText("Есть несохранённые изменения")).toBeVisible();
+});
+
