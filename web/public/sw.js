@@ -19,5 +19,10 @@ self.addEventListener("activate", (event) => {
 self.addEventListener("fetch", (event) => {
   // Page loads only; every other request goes to the network untouched.
   if (event.request.mode !== "navigate") return;
-  event.respondWith(fetch(event.request).catch(() => caches.match(OFFLINE_URL)));
+  event.respondWith(fetch(event.request).catch(async () =>
+    // The cached page can be evicted on a full phone; answer with plain text then.
+    (await caches.match(OFFLINE_URL)) ||
+    new Response("No internet connection / Нет связи с интернетом / Интернет байланысы жоқ", {
+      status: 503, headers: { "content-type": "text/plain; charset=utf-8" },
+    })));
 });

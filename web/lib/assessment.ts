@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import type { Question, ShareSettings, TestVariant } from "./types";
 import { isValidVariant } from "./question-validation";
 import { answerText, correctText } from "./answer-format";
+import { needsTeacher, questionScore, shownScore } from "./scoring";
 
 export { isValidVariant };
 
@@ -52,41 +53,8 @@ export function scrambled(items: string[], seed: string): string[] {
   return result;
 }
 
-function normalized(value: unknown): string {
-  return String(value ?? "").trim().toLocaleLowerCase().replace(/\s+/g, " ");
-}
-
-function questionScore(question: Question, answer: unknown): number {
-  if (question.type === "multiple_select") {
-    const correct = new Set((question.correct_answers || []).map(normalized));
-    if (!Array.isArray(answer) || !correct.size) return 0;
-    const chosen = new Set(answer.map(normalized));
-    let hits = 0; let wrong = 0;
-    for (const item of chosen) if (correct.has(item)) hits += 1; else wrong += 1;
-    // Each wrong choice cancels a right one, so ticking everything scores 0.
-    return Math.max(0, (hits - wrong) / correct.size);
-  }
-  if (question.type === "ordering") {
-    if (!Array.isArray(answer) || !question.items?.length) return 0;
-    return question.items.filter((item, i) => normalized(answer[i]) === normalized(item)).length / question.items.length;
-  }
-  if (question.type === "matching") {
-    if (!answer || typeof answer !== "object" || !question.pairs?.length) return 0;
-    const given = answer as Record<string, string>;
-    return question.pairs.filter((pair) => normalized(given[pair.left]) === normalized(pair.right)).length / question.pairs.length;
-  }
-  if (question.type === "short_answer") {
-    const expected = normalized(question.correct_answer);
-    const student = normalized(answer);
-    return student && expected && student === expected ? 1 : 0;
-  }
-  return normalized(answer) === normalized(question.correct_answer) ? 1 : 0;
-}
-
 export function grade(variant: TestVariant, answers: Record<string, unknown>) {
-  const needsReview = (question: Question) => question.type === "short_answer" &&
-    typeof answers[question.id] === "string" && Boolean((answers[question.id] as string).trim()) &&
-    normalized(answers[question.id]) !== normalized(question.correct_answer);
+  const needsReview = (question: Question) => needsTeacher(question, answers[question.id]);
   const requiresManualReview = variant.questions.some(needsReview);
   const perQuestion = variant.questions.map((question) => ({
     id: question.id,
@@ -134,8 +102,9 @@ export type ReviewItem = {
   given: string;
   correct: string;
   explanation: string;
-  // null while a teacher still has to check the answer.
+  // null when only the teacher can judge the answer.
   score: number | null;
+  checked: boolean;
 };
 
 /** The after-submission review a teacher can allow; only built for submitted attempts. */
@@ -143,15 +112,18 @@ export function answerReview(variant: TestVariant, answers: Record<string, unkno
   const perQuestion = new Map<string, { score?: number | null; requires_manual_review?: boolean }>();
   const rows = result && typeof result === "object" ? (result as { per_question?: unknown }).per_question : null;
   if (Array.isArray(rows)) for (const row of rows) if (row && typeof row.id === "string") perQuestion.set(row.id, row);
+  const reviewed = Boolean(result && typeof result === "object" && (result as { manually_reviewed_by?: unknown }).manually_reviewed_by);
   return variant.questions.map((question) => {
-    const graded = perQuestion.get(question.id);
+    const score = shownScore(question, answers?.[question.id], perQuestion.get(question.id));
     return {
       id: question.id,
       question: question.question,
       given: answerText(question, answers?.[question.id]),
       correct: correctText(question),
       explanation: question.explanation || "",
-      score: graded?.requires_manual_review || typeof graded?.score !== "number" ? null : graded.score,
+      score,
+      // The teacher already set the total by hand; this answer was part of it.
+      checked: score === null && reviewed,
     };
   });
 }

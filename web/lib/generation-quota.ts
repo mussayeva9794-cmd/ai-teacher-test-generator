@@ -47,3 +47,10 @@ export async function releaseGenerationWindow(admin: () => Pick<SupabaseClient, 
     console.error("Generation quota release failed", { code: "server_configuration_error" });
   }
 }
+
+/** The error to return when no generation could be reserved. */
+export function quotaErrorResponse(reservation: Exclude<GenerationReservation, { status: "allowed" }>) {
+  return reservation.status === "limited"
+    ? Response.json({ error: "Generation limit reached: 5 requests per hour. Try later." }, { status: 429 })
+    : Response.json({ error: "Generation is temporarily unavailable. Check the database migration." }, { status: 503 });
+}

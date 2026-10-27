@@ -92,3 +92,16 @@ test("without the full-screen setting a strict test opens directly", async ({ pa
   await expect(page.getByText("Сопоставьте дроби")).toBeVisible();
   await expect(page.getByRole("button", { name: "Открыть тест на весь экран" })).toHaveCount(0);
 });
+
+test("when the browser refuses full screen, the student can still start", async ({ page }) => {
+  await page.addInitScript(() => {
+    Element.prototype.requestFullscreen = () => Promise.reject(new TypeError("Permissions check failed"));
+  });
+  const mock = await openTest(page, { strict_mode: true, leave_limit: 2, question_seconds: 0, require_fullscreen: true });
+  await page.getByRole("button", { name: "Открыть тест на весь экран" }).click();
+  await expect(page.getByText(/Можно начать без него/)).toBeVisible();
+  expect(mock.started).toBe(false);
+  await page.getByRole("button", { name: "Начать без полноэкранного режима" }).click();
+  await expect(page.getByText("Сопоставьте дроби")).toBeVisible();
+  expect(mock.gets).toEqual(["after_fullscreen", ""]);
+});

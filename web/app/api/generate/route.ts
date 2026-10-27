@@ -4,11 +4,15 @@ import { BLOOM_MIXES, generateRubrics, generateVariants, GroqGenerationError, ty
 import { userClient } from "@/lib/supabase";
 import { adminClient } from "@/lib/supabase-admin";
 import { QUESTION_TYPES } from "@/lib/question-validation";
-import { releaseGenerationWindow, reserveGenerationWindow } from "@/lib/generation-quota";
+import { quotaErrorResponse, releaseGenerationWindow, reserveGenerationWindow } from "@/lib/generation-quota";
 
 export const maxDuration = 300;
+// The СОР/СОЧ table is skipped when generation already took this long, so the
+// table call plus its fallback cannot push the request past maxDuration.
+const RUBRIC_DEADLINE_MS = 170_000;
 
 export async function POST(request: NextRequest) {
+  const started = Date.now();
   const actor = await actorFromRequest(request);
   if (!actor || actor.role !== "teacher") return jsonError("Teacher sign-in required.", 401);
   // Source details arrive as flat form fields and are folded into `sources` below.
@@ -43,11 +47,7 @@ export async function POST(request: NextRequest) {
   }
   const db = userClient(actor.accessToken);
   const reservation = await reserveGenerationWindow(db);
-  if (reservation.status !== "allowed") {
-    return reservation.status === "limited"
-      ? jsonError("Generation limit reached: 5 requests per hour. Try later.", 429)
-      : jsonError("Generation is temporarily unavailable. Check the database migration.", 503);
-  }
+  if (reservation.status !== "allowed") return quotaErrorResponse(reservation);
   const { window } = reservation;
   const releaseQuota = () => releaseGenerationWindow(adminClient, actor.id, window);
   const input: GenerateInput = {
@@ -82,7 +82,7 @@ export async function POST(request: NextRequest) {
     return jsonError(messages[reason], reason === "rate_limit" ? 429 : 503);
   }
 
-  if (format !== "test") {
+  if (format !== "test" && Date.now() - started < RUBRIC_DEADLINE_MS) {
     // The criteria table is an extra; a failure here still returns the test.
     try {
       const rubrics = await generateRubrics(input, variants);

@@ -1,6 +1,6 @@
 import type { NextRequest } from "next/server";
 import { actorFromRequest, jsonError } from "@/lib/auth";
-import { releaseGenerationWindow, reserveGenerationWindow } from "@/lib/generation-quota";
+import { quotaErrorResponse, releaseGenerationWindow, reserveGenerationWindow } from "@/lib/generation-quota";
 import { GroqGenerationError, imagesToText } from "@/lib/groq";
 import { userClient } from "@/lib/supabase";
 import { adminClient } from "@/lib/supabase-admin";
@@ -26,11 +26,7 @@ export async function POST(request: NextRequest) {
   }
   const db = userClient(actor.accessToken);
   const reservation = await reserveGenerationWindow(db);
-  if (reservation.status !== "allowed") {
-    return reservation.status === "limited"
-      ? jsonError("Generation limit reached: 5 requests per hour. Try later.", 429)
-      : jsonError("Generation is temporarily unavailable. Check the database migration.", 503);
-  }
+  if (reservation.status !== "allowed") return quotaErrorResponse(reservation);
   try {
     const text = await imagesToText(images);
     if (!text) {

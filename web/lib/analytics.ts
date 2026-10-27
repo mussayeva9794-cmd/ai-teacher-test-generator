@@ -1,4 +1,5 @@
 import type { Question } from "./types";
+import { shownScore } from "./scoring";
 
 // Class analytics computed in the browser from the attempts the teacher can
 // already see: a student × question heat map and per-question statistics.
@@ -51,8 +52,17 @@ export function analyzeVariant(variant: string, attempts: AnalyticsAttempt[], qu
   const byId = new Map(questions.map((question) => [question.id, question]));
 
   const rows: HeatRow[] = mine.map((attempt) => {
-    const scores = new Map((attempt.result?.per_question || []).map((row) => [row.id, row.requires_manual_review ? null : row.score]));
-    const cells = ids.map((id) => scores.has(id) ? (typeof scores.get(id) === "number" ? scores.get(id)! : null) : null);
+    const stored = new Map((attempt.result?.per_question || []).map((row) => [row.id, row]));
+    // shownScore also rescores answers whose per-question scores a teacher's
+    // manual review cleared.
+    const cells = ids.map((id) => {
+      const row = stored.get(id);
+      // A question this attempt was not graded on (another snapshot) has no score.
+      if (!row) return null;
+      const question = byId.get(id);
+      if (question) return shownScore(question, attempt.answers?.[id], row);
+      return row && !row.requires_manual_review && typeof row.score === "number" ? row.score : null;
+    });
     const graded = cells.filter((cell): cell is number => cell !== null);
     return {
       attemptId: attempt.id, student: attempt.student_name, cells,

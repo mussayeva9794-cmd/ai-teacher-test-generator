@@ -1,6 +1,9 @@
 import type { NextRequest } from "next/server";
 import { actorFromRequest, jsonError } from "@/lib/auth";
-import { classProgress } from "@/lib/progress";
+import { classProgress, type ProgressAttempt } from "@/lib/progress";
+
+const PAGE = 1000;
+const MAX_ATTEMPTS = 20000;
 import { userClient } from "@/lib/supabase";
 
 /** One class's results across this teacher's tests. Reads only rows the teacher owns. */
@@ -22,9 +25,22 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   const studentIds = (members || []).flatMap((member) => member.student_id ? [member.student_id as string] : []);
   const testIds = (tests || []).map((test) => test.id as string);
   if (!studentIds.length || !testIds.length) return Response.json(classProgress(members || [], tests || [], []));
-  const { data: attempts, error: attemptError } = await db.from("web_attempts")
-    .select("test_id,student_id,percentage,submitted_at").in("test_id", testIds).in("student_id", studentIds)
-    .order("submitted_at", { ascending: true }).limit(10000);
-  if (attemptError) return jsonError("Could not load results.", 503);
-  return Response.json(classProgress(members || [], tests || [], attempts || []));
+  // PostgREST returns at most 1,000 rows per request: page through with a
+  // (submitted_at, id) cursor, as the CSV export does.
+  const attempts: ProgressAttempt[] = [];
+  let cursor: { submitted_at: string; id: string } | null = null;
+  while (attempts.length < MAX_ATTEMPTS) {
+    let query = db.from("web_attempts").select("id,test_id,student_id,percentage,submitted_at")
+      .in("test_id", testIds).in("student_id", studentIds)
+      .order("submitted_at", { ascending: true }).order("id", { ascending: true }).limit(PAGE);
+    if (cursor) query = query.or(`submitted_at.gt.${cursor.submitted_at},and(submitted_at.eq.${cursor.submitted_at},id.gt.${cursor.id})`);
+    const { data, error: attemptError } = await query;
+    if (attemptError) return jsonError("Could not load results.", 503);
+    const batch = (data || []) as (ProgressAttempt & { id: string })[];
+    attempts.push(...batch);
+    if (batch.length < PAGE) break;
+    const last = batch[batch.length - 1];
+    cursor = { submitted_at: last.submitted_at, id: last.id };
+  }
+  return Response.json(classProgress(members || [], tests || [], attempts));
 }

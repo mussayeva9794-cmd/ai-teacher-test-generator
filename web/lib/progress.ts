@@ -24,9 +24,10 @@ export function classProgress(members: ProgressMember[], tests: ProgressTest[], 
     if (!firstTaken.has(attempt.test_id) || at < firstTaken.get(attempt.test_id)!) firstTaken.set(attempt.test_id, at);
   }
   const columns = tests.filter((test) => firstTaken.has(test.id)).sort((a, b) => firstTaken.get(a.id)! - firstTaken.get(b.id)!);
+  const byStudentTest = new Map(mine.map((attempt) => [`${attempt.student_id}:${attempt.test_id}`, attempt]));
   const rows: ProgressRow[] = members.map((member) => {
     const cells = columns.map((test) => {
-      const attempt = mine.find((item) => item.student_id === member.student_id && item.test_id === test.id);
+      const attempt = member.student_id ? byStudentTest.get(`${member.student_id}:${test.id}`) : undefined;
       return !attempt ? null : attempt.percentage === null ? "pending" as const : attempt.percentage;
     });
     const graded = cells.filter((cell): cell is number => typeof cell === "number");

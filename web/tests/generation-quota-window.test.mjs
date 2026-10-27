@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { releaseGenerationWindow, reserveGenerationWindow } from "../lib/generation-quota.ts";
+import { quotaErrorResponse, releaseGenerationWindow, reserveGenerationWindow } from "../lib/generation-quota.ts";
 
 const migration = readFileSync(new URL("../supabase_generation_quota_window_refund.sql", import.meta.url), "utf8");
 const route = readFileSync(new URL("../app/api/generate/route.ts", import.meta.url), "utf8");
@@ -28,7 +28,9 @@ test("refund locks and changes only the DB-returned reservation window", () => {
 
 test("generation fails closed without a reservation and refunds on both failure paths", () => {
   assert.match(route, /const reservation = await reserveGenerationWindow\(db\)/);
-  assert.match(route, /if \(reservation\.status !== "allowed"\)[\s\S]*?429\)[\s\S]*?503\)/);
+  assert.match(route, /if \(reservation\.status !== "allowed"\) return quotaErrorResponse\(reservation\);/);
+  assert.equal(quotaErrorResponse({ status: "limited" }).status, 429);
+  assert.equal(quotaErrorResponse({ status: "unavailable" }).status, 503);
   assert.match(route, /releaseGenerationWindow\(adminClient, actor\.id, window\)/);
   assert.equal((route.match(/await releaseQuota\(\)/g) || []).length, 2);
 });

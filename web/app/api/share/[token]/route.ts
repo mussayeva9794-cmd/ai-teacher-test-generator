@@ -32,6 +32,10 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   // first question's clock start only once the student is in full screen.
   if (!draft && settings.strict_mode && settings.require_fullscreen &&
       request.nextUrl.searchParams.get("start") === "after_fullscreen") {
+    // A link past its deadline says so at once instead of asking for full screen first.
+    if (settings.deadline_at && Date.parse(settings.deadline_at) <= Date.now()) {
+      return jsonError("The deadline for this test has passed.", 403);
+    }
     return Response.json({
       submitted: false, awaiting_fullscreen: true, title: test.title, topic: test.topic, variant_name: link.variant_name,
       server_now: new Date().toISOString(),

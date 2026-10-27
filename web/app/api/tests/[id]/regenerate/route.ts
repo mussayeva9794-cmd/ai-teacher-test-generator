@@ -1,7 +1,7 @@
 import type { NextRequest } from "next/server";
 import { actorFromRequest, jsonError } from "@/lib/auth";
 import { generateQuestion, GroqGenerationError, type GenerateInput } from "@/lib/groq";
-import { releaseGenerationWindow, reserveGenerationWindow } from "@/lib/generation-quota";
+import { quotaErrorResponse, releaseGenerationWindow, reserveGenerationWindow } from "@/lib/generation-quota";
 import { userClient } from "@/lib/supabase";
 import { adminClient } from "@/lib/supabase-admin";
 import type { TestRow } from "@/lib/types";
@@ -53,11 +53,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   const current = typeof body.question === "string" ? body.question.slice(0, 1000) : saved.question;
 
   const reservation = await reserveGenerationWindow(db);
-  if (reservation.status !== "allowed") {
-    return reservation.status === "limited"
-      ? jsonError("Generation limit reached: 5 requests per hour. Try later.", 429)
-      : jsonError("Generation is temporarily unavailable. Check the database migration.", 503);
-  }
+  if (reservation.status !== "allowed") return quotaErrorResponse(reservation);
   try {
     const question = await generateQuestion({
       topic: test.topic, type: saved.type, language,

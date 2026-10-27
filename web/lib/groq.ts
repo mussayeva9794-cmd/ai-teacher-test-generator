@@ -271,6 +271,21 @@ the explanation states why correct_answer is right and never contradicts it. Rew
   return variant;
 }
 
+/** The primary model is busy or gone: worth one try on the fallback model. */
+function modelUnavailable(error: unknown): error is GroqGenerationError {
+  return error instanceof GroqGenerationError && (error.reason === "rate_limit" || error.reason === "timeout" ||
+    (error.reason === "upstream" && error.upstreamStatus === 404));
+}
+
+async function withFallback<T>(call: (model: string) => Promise<T>): Promise<T> {
+  try {
+    return await call(configuredModel());
+  } catch (error) {
+    if (!modelUnavailable(error) || configuredModel() === FALLBACK_MODEL) throw error;
+    return call(FALLBACK_MODEL);
+  }
+}
+
 async function generateVariant(input: GenerateInput, difficulty: string): Promise<TestVariant> {
   let lastError: unknown;
   for (let attempt = 1; attempt <= generationAttempts(); attempt += 1) {
@@ -278,9 +293,7 @@ async function generateVariant(input: GenerateInput, difficulty: string): Promis
       return await requestVariant(input, difficulty, configuredModel());
     } catch (error) {
       lastError = error;
-      const modelUnavailable = error instanceof GroqGenerationError && (error.reason === "rate_limit" ||
-        error.reason === "timeout" || (error.reason === "upstream" && error.upstreamStatus === 404));
-      if (modelUnavailable && configuredModel() !== FALLBACK_MODEL) {
+      if (modelUnavailable(error) && configuredModel() !== FALLBACK_MODEL) {
         console.warn("Groq primary model unavailable; using fallback", { difficulty, reason: error.reason });
         return await requestVariant(input, difficulty, FALLBACK_MODEL);
       }
@@ -356,15 +369,7 @@ Items (JSON): ${JSON.stringify(items.map((item) => ({
     model, schemaName: "answer_grades", schema, temperature: 0, prompt,
     system: "You are a fair, careful school teacher's assistant. Output valid JSON only.",
   });
-  let raw: Record<string, unknown>;
-  try {
-    raw = await call(configuredModel());
-  } catch (error) {
-    const unavailable = error instanceof GroqGenerationError && (error.reason === "rate_limit" || error.reason === "timeout" ||
-      (error.reason === "upstream" && error.upstreamStatus === 404));
-    if (!unavailable || configuredModel() === FALLBACK_MODEL) throw error;
-    raw = await call(FALLBACK_MODEL);
-  }
+  const raw = await withFallback(call);
   const keys = new Set(items.map((item) => item.key));
   const seen = new Set<string>();
   const grades: GradeSuggestion[] = [];
@@ -434,15 +439,7 @@ Do not invent learning-objective codes. Tasks (JSON): ${JSON.stringify(tasks)}`;
     model, schemaName: "assessment_tables", schema, temperature: 0.2, prompt,
     system: "You are an experienced teacher in Kazakhstan who writes summative assessment criteria. Output valid JSON only.",
   });
-  let raw: Record<string, unknown>;
-  try {
-    raw = await call(configuredModel());
-  } catch (error) {
-    const unavailable = error instanceof GroqGenerationError && (error.reason === "rate_limit" || error.reason === "timeout" ||
-      (error.reason === "upstream" && error.upstreamStatus === 404));
-    if (!unavailable || configuredModel() === FALLBACK_MODEL) throw error;
-    raw = await call(FALLBACK_MODEL);
-  }
+  const raw = await withFallback(call);
   const result: Record<string, Assessment> = {};
   for (const value of Array.isArray(raw.variants) ? raw.variants : []) {
     const item = value && typeof value === "object" ? value as { name?: unknown; rows?: unknown } : {};

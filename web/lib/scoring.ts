@@ -1,0 +1,54 @@
+import type { Question } from "./types";
+
+// Per-question scoring shared by the server grader, the student review and
+// the class analytics.
+
+export function normalized(value: unknown): string {
+  return String(value ?? "").trim().toLocaleLowerCase().replace(/\s+/g, " ");
+}
+
+export function questionScore(question: Question, answer: unknown): number {
+  if (question.type === "multiple_select") {
+    const correct = new Set((question.correct_answers || []).map(normalized));
+    if (!Array.isArray(answer) || !correct.size) return 0;
+    const chosen = new Set(answer.map(normalized));
+    let hits = 0; let wrong = 0;
+    for (const item of chosen) if (correct.has(item)) hits += 1; else wrong += 1;
+    // Each wrong choice cancels a right one, so ticking everything scores 0.
+    return Math.max(0, (hits - wrong) / correct.size);
+  }
+  if (question.type === "ordering") {
+    if (!Array.isArray(answer) || !question.items?.length) return 0;
+    return question.items.filter((item, i) => normalized(answer[i]) === normalized(item)).length / question.items.length;
+  }
+  if (question.type === "matching") {
+    if (!answer || typeof answer !== "object" || !question.pairs?.length) return 0;
+    const given = answer as Record<string, string>;
+    return question.pairs.filter((pair) => normalized(given[pair.left]) === normalized(pair.right)).length / question.pairs.length;
+  }
+  if (question.type === "short_answer") {
+    const expected = normalized(question.correct_answer);
+    const student = normalized(answer);
+    return student && expected && student === expected ? 1 : 0;
+  }
+  return normalized(answer) === normalized(question.correct_answer) ? 1 : 0;
+}
+
+/** A written answer that is not an exact match: only the teacher can score it. */
+export function needsTeacher(question: Question, answer: unknown): boolean {
+  return question.type === "short_answer" && typeof answer === "string" && Boolean(answer.trim()) &&
+    normalized(answer) !== normalized(question.correct_answer);
+}
+
+type StoredRow = { score?: number | null; requires_manual_review?: boolean } | undefined;
+
+/**
+ * The score to show for one answer. A teacher's manual review stores only the
+ * total and clears every per-question score, so auto-gradable answers are
+ * scored again here; open answers that needed the teacher stay null.
+ */
+export function shownScore(question: Question, answer: unknown, stored: StoredRow): number | null {
+  if (stored?.requires_manual_review) return null;
+  if (typeof stored?.score === "number") return stored.score;
+  return needsTeacher(question, answer) ? null : questionScore(question, answer);
+}

@@ -51,3 +51,13 @@ test("the student review shows answers, the key and pending checks", () => {
   assert.equal(review[0].explanation, "Add");
   assert.deepEqual(answerReview({ title: "T", instructions: "", questions }, {}, null).map(item => item.given), ["", ""]);
 });
+
+test("a teacher's manual review does not hide the auto-graded answers", () => {
+  // The review route clears every per-question score and stores only the total.
+  const reviewed = { id: "r1", student_name: "Reviewed", variant_name: "Variant A", answers: { q1: "4", q2: "astana city" },
+    result: { manually_reviewed_by: "teacher-1", per_question_scoring: "unscored", per_question: [{ id: "q1", score: null }, { id: "q2", score: null }] } };
+  const data = analyzeVariant("Variant A", [reviewed], questions);
+  assert.deepEqual(data.rows[0].cells, [1, null]);
+  const review = answerReview({ title: "T", instructions: "", questions }, reviewed.answers, reviewed.result);
+  assert.deepEqual(review.map(item => [item.score, item.checked]), [[1, false], [null, true]]);
+});
