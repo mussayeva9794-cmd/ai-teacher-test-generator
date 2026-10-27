@@ -17,6 +17,12 @@ const SHEET_LOCALE = { russian: "ru", kazakh: "kk", english: "en" } as const;
 /** Letter for choice `i`, falling back to a number past the end of the alphabet given. */
 const choiceLabel = (letters: string, i: number) => letters[i] ?? String(i + 1);
 
+/** Ordering items printed out of order; any fixed order that is not the answer works on paper. */
+function scrambledItems(question: Question) {
+  const items = question.items || [];
+  return items.length < 2 ? [...items] : [...items.slice(1), items[0]].reverse();
+}
+
 /** Right-hand matching items in the same sorted order students see. */
 const matchChoices = (question: Question) => (question.pairs || []).map(pair => pair.right).sort((a, b) => a.localeCompare(b));
 
@@ -24,6 +30,15 @@ function correctLabel(question: Question, letters: string) {
   if (question.type === "matching") {
     const choices = matchChoices(question);
     return (question.pairs || []).map((pair, i) => `${i + 1} — ${choiceLabel(letters, choices.indexOf(pair.right))}`).join(", ");
+  }
+  if (question.type === "multiple_select") {
+    const correct = new Set((question.correct_answers || []).map(answer => answer.trim().toLocaleLowerCase()));
+    return (question.options || []).flatMap((option, i) => correct.has(option.trim().toLocaleLowerCase()) ? [`${choiceLabel(letters, i)}) ${option}`] : []).join("; ");
+  }
+  if (question.type === "ordering") {
+    // The key gives, for each printed line, its position in the correct order.
+    const items = question.items || [];
+    return scrambledItems(question).map(item => String(items.indexOf(item) + 1)).join(", ");
   }
   if (question.options) {
     const at = question.options.findIndex(option => option.trim().toLocaleLowerCase() === question.correct_answer.trim().toLocaleLowerCase());
@@ -40,6 +55,8 @@ function Sheet({ title, name, variant, s }: { title: string; name: string; varia
     <ol className="print-questions">{variant.questions.map(question => <li key={question.id}>
       <p className="print-question">{question.question}</p>
       {question.type === "multiple_choice" && <ul className="print-options">{question.options?.map((option, i) => <li key={i}><b>{choiceLabel(pr.letters, i)})</b> {option}</li>)}</ul>}
+      {question.type === "multiple_select" && <><p className="print-hint">{pr.selectAllHint}</p><ul className="print-options">{question.options?.map((option, i) => <li key={i}><b>{choiceLabel(pr.letters, i)})</b> {option}</li>)}</ul></>}
+      {question.type === "ordering" && <><p className="print-hint">{pr.orderHint}</p><ul className="print-order">{scrambledItems(question).map((item, i) => <li key={i}><i /> {item}</li>)}</ul></>}
       {question.type === "true_false" && <><p className="print-hint">{pr.trueFalseHint}</p><p className="print-tf">{question.options?.map((option, i) => <span key={i}>{option}</span>)}</p></>}
       {question.type === "matching" && <><p className="print-hint">{pr.matchHint}</p><div className="print-match"><ol>{question.pairs?.map((pair, i) => <li key={i}><b>{i + 1}.</b> {pair.left} <i /></li>)}</ol><ul>{matchChoices(question).map((choice, i) => <li key={i}><b>{choiceLabel(pr.letters, i)})</b> {choice}</li>)}</ul></div></>}
       {question.type === "short_answer" && <div className="print-lines"><i /><i /></div>}

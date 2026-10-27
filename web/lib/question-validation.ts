@@ -3,7 +3,7 @@ import type { Question, TestVariant } from "./types";
 // Pure validation shared by the API and the teacher editor, which shows the
 // teacher which question still needs fixing before the server would reject it.
 
-export const QUESTION_TYPES = ["multiple_choice", "true_false", "short_answer", "matching"] as const;
+export const QUESTION_TYPES = ["multiple_choice", "multiple_select", "true_false", "short_answer", "matching", "ordering"] as const;
 
 export type QuestionProblem =
   | "invalid"
@@ -15,7 +15,11 @@ export type QuestionProblem =
   | "pairs_count"
   | "pairs_empty"
   | "pairs_duplicate"
-  | "answer_empty";
+  | "answer_empty"
+  | "correct_answers_missing"
+  | "items_count"
+  | "items_empty"
+  | "items_duplicate";
 
 const key = (value: string) => value.trim().toLocaleLowerCase();
 
@@ -26,6 +30,24 @@ export function questionProblem(value: unknown): QuestionProblem | null {
     typeof question.correct_answer !== "string" || !(QUESTION_TYPES as readonly string[]).includes(question.type || "") ||
     (question.source_reference !== undefined && (typeof question.source_reference !== "string" || question.source_reference.length > 320))) return "invalid";
   if (!question.question.trim()) return "empty_question";
+
+  if (question.type === "multiple_select") {
+    if (!Array.isArray(question.options)) return "invalid";
+    if (question.options.length < 3) return "options_count";
+    if (!question.options.every((option) => typeof option === "string" && Boolean(option.trim()))) return "options_empty";
+    const normalizedOptions = question.options.map(key);
+    if (new Set(normalizedOptions).size !== question.options.length) return "options_duplicate";
+    if (!Array.isArray(question.correct_answers) || !question.correct_answers.every((answer) => typeof answer === "string")) return "invalid";
+    const correct = question.correct_answers.map(key);
+    if (!correct.length || new Set(correct).size !== correct.length || !correct.every((answer) => normalizedOptions.includes(answer))) return "correct_answers_missing";
+    return null;
+  }
+
+  if (question.type === "ordering") {
+    if (!Array.isArray(question.items) || question.items.length < 3 || question.items.length > 10) return "items_count";
+    if (!question.items.every((item) => typeof item === "string" && Boolean(item.trim()))) return "items_empty";
+    return new Set(question.items.map(key)).size === question.items.length ? null : "items_duplicate";
+  }
 
   if (question.type === "multiple_choice" || question.type === "true_false") {
     if (!Array.isArray(question.options)) return "invalid";

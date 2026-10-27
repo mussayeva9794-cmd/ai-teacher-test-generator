@@ -1,4 +1,4 @@
-export type QuestionType = "multiple_choice" | "true_false" | "short_answer" | "matching";
+export type QuestionType = "multiple_choice" | "multiple_select" | "true_false" | "short_answer" | "matching" | "ordering";
 
 export type Question = {
   id: string;
@@ -6,7 +6,12 @@ export type Question = {
   question: string;
   options?: string[];
   pairs?: { left: string; right: string }[];
+  // Ordering: the items in their correct order (students get them shuffled).
+  items?: string[];
+  // Single-answer types use correct_answer; multiple_select uses correct_answers
+  // and keeps correct_answer empty.
   correct_answer: string;
+  correct_answers?: string[];
   explanation: string;
   skill_tag: string;
   source_reference?: string;
@@ -33,6 +38,9 @@ export type ShareSettings = {
   one_question_at_a_time: boolean;
   randomize: boolean;
   reveal_score: boolean;
+  // After submitting, show each question with the student's answer, the right
+  // answer and the explanation.
+  reveal_answers: boolean;
   // Strict mode: hide questions when the page loses focus, block copy/paste,
   // auto-submit after more than `leave_limit` leaves (null = never) and give
   // each question `question_seconds` (0 = no per-question limit).

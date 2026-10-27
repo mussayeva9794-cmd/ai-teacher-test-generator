@@ -3,6 +3,7 @@ import { actorFromRequest, jsonError } from "@/lib/auth";
 import { generateVariants, GroqGenerationError, type GenerateInput } from "@/lib/groq";
 import { userClient } from "@/lib/supabase";
 import { adminClient } from "@/lib/supabase-admin";
+import { QUESTION_TYPES } from "@/lib/question-validation";
 import { releaseGenerationWindow, reserveGenerationWindow } from "@/lib/generation-quota";
 
 export const maxDuration = 300;
@@ -18,7 +19,7 @@ export async function POST(request: NextRequest) {
   if (!topic || topic.length > 180 || !Number.isInteger(count) || count < 1 || count > 20) {
     return jsonError("Enter a topic and choose 1–20 questions.");
   }
-  if (!body.type || !["multiple_choice", "true_false", "short_answer", "matching"].includes(body.type)) {
+  if (!body.type || !(QUESTION_TYPES as readonly string[]).includes(body.type)) {
     return jsonError("Choose a supported question type.");
   }
   if (!body.language || !["russian", "kazakh", "english"].includes(body.language)) {

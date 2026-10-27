@@ -8,7 +8,7 @@ import { registerHooks } from "node:module";
 const modules = new Map([
   ["@/lib/auth", "export const actorFromRequest = async () => ({ id: 'student-1', role: 'student' }); export const jsonError = (message, status = 400) => Response.json({ error: message }, { status });"],
   ["@/lib/share", "export const shareContext = async () => globalThis.strictMocks.context;"],
-  ["@/lib/assessment", "export const personalizedVariant = variant => variant; export const grade = (_variant, answers) => ({ percentage: answers.q1 === 'saved' ? 100 : 0 });"],
+  ["@/lib/assessment", "export const answerReview = () => []; export const personalizedVariant = variant => variant; export const grade = (_variant, answers) => ({ percentage: answers.q1 === 'saved' ? 100 : 0 });"],
   ["@/lib/integrity-server", `
     export const loadIntegrity = async () => globalThis.strictMocks.integrity;
     export const leaveLimitReached = (settings, leaves) => settings.strict_mode && settings.leave_limit !== null && leaves > settings.leave_limit;

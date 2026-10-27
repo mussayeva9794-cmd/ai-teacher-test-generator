@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import type { Question, ShareSettings, TestVariant } from "./types";
 import { isValidVariant } from "./question-validation";
+import { answerText, correctText } from "./answer-format";
 
 export { isValidVariant };
 
@@ -30,8 +31,10 @@ export function studentVariant(variant: TestVariant) {
   return {
     title: variant.title,
     instructions: variant.instructions,
-    questions: variant.questions.map(({ correct_answer: _answer, explanation: _explanation, source_reference: _sourceReference, ...question }) => ({
+    questions: variant.questions.map(({ correct_answer: _answer, correct_answers: _answers, explanation: _explanation, source_reference: _sourceReference, ...question }) => ({
       ...question,
+      // Ordering items go out shuffled; their stored order is the answer.
+      items: question.items ? scrambled(question.items, question.id) : undefined,
       // Matching rows are rendered from the left side only; never send the answer mapping to students.
       pairs: question.pairs?.map(({ left }) => ({ left, right: "" })),
       // The right-hand choices go out sorted on their own, so their order says
@@ -41,11 +44,32 @@ export function studentVariant(variant: TestVariant) {
   };
 }
 
+/** A fixed shuffle per question that never equals the correct order. */
+export function scrambled(items: string[], seed: string): string[] {
+  if (items.length < 2) return [...items];
+  const result = shuffle(items, `${seed}:items`);
+  if (result.every((item, i) => item === items[i])) result.push(result.shift()!);
+  return result;
+}
+
 function normalized(value: unknown): string {
   return String(value ?? "").trim().toLocaleLowerCase().replace(/\s+/g, " ");
 }
 
 function questionScore(question: Question, answer: unknown): number {
+  if (question.type === "multiple_select") {
+    const correct = new Set((question.correct_answers || []).map(normalized));
+    if (!Array.isArray(answer) || !correct.size) return 0;
+    const chosen = new Set(answer.map(normalized));
+    let hits = 0; let wrong = 0;
+    for (const item of chosen) if (correct.has(item)) hits += 1; else wrong += 1;
+    // Each wrong choice cancels a right one, so ticking everything scores 0.
+    return Math.max(0, (hits - wrong) / correct.size);
+  }
+  if (question.type === "ordering") {
+    if (!Array.isArray(answer) || !question.items?.length) return 0;
+    return question.items.filter((item, i) => normalized(answer[i]) === normalized(item)).length / question.items.length;
+  }
   if (question.type === "matching") {
     if (!answer || typeof answer !== "object" || !question.pairs?.length) return 0;
     const given = answer as Record<string, string>;
@@ -95,10 +119,39 @@ export function parseSettings(value: unknown): ShareSettings {
     one_question_at_a_time: Boolean(source.one_question_at_a_time) || strict,
     randomize: source.randomize !== false,
     reveal_score: source.reveal_score === true,
+    reveal_answers: source.reveal_answers === true,
     strict_mode: strict,
     leave_limit: source.leave_limit === null ? null : Number.isFinite(leaveLimit) ? Math.max(0, Math.min(5, leaveLimit)) : 2,
     // Links created before this setting existed keep their original behaviour.
     require_fullscreen: strict && source.require_fullscreen === true,
     question_seconds: Number.isFinite(questionSeconds) && questionSeconds > 0 ? Math.max(15, Math.min(600, questionSeconds)) : 0,
   };
+}
+
+export type ReviewItem = {
+  id: string;
+  question: string;
+  given: string;
+  correct: string;
+  explanation: string;
+  // null while a teacher still has to check the answer.
+  score: number | null;
+};
+
+/** The after-submission review a teacher can allow; only built for submitted attempts. */
+export function answerReview(variant: TestVariant, answers: Record<string, unknown>, result: unknown): ReviewItem[] {
+  const perQuestion = new Map<string, { score?: number | null; requires_manual_review?: boolean }>();
+  const rows = result && typeof result === "object" ? (result as { per_question?: unknown }).per_question : null;
+  if (Array.isArray(rows)) for (const row of rows) if (row && typeof row.id === "string") perQuestion.set(row.id, row);
+  return variant.questions.map((question) => {
+    const graded = perQuestion.get(question.id);
+    return {
+      id: question.id,
+      question: question.question,
+      given: answerText(question, answers?.[question.id]),
+      correct: correctText(question),
+      explanation: question.explanation || "",
+      score: graded?.requires_manual_review || typeof graded?.score !== "number" ? null : graded.score,
+    };
+  });
 }

@@ -1,0 +1,53 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { analyzeVariant } from "../lib/analytics.ts";
+import { answerReview } from "../lib/assessment.ts";
+
+const questions = [
+  { id: "q1", type: "multiple_choice", question: "2 + 2?", options: ["3", "4", "5"], correct_answer: "4", explanation: "Add", skill_tag: "" },
+  { id: "q2", type: "short_answer", question: "Capital?", correct_answer: "Astana", explanation: "", skill_tag: "" },
+];
+const attempt = (id, name, answers, scores) => ({
+  id, student_name: name, variant_name: "Variant A", answers,
+  result: { per_question: scores.map(([qid, score, review]) => ({ id: qid, score, requires_manual_review: Boolean(review) })) },
+});
+const attempts = [
+  attempt("a1", "Aigerim", { q1: "4", q2: "Astana" }, [["q1", 1], ["q2", 1]]),
+  attempt("a2", "Bolat", { q1: "3", q2: "Almaty" }, [["q1", 0], ["q2", 0]]),
+  attempt("a3", "Dana", { q1: "3", q2: "astana city" }, [["q1", 0], ["q2", 0, true]]),
+  attempt("a4", "Erlan", { q1: "5" }, [["q1", 0], ["q2", 0]]),
+  { ...attempt("b1", "Other", { q1: "4" }, [["q1", 1]]), variant_name: "Variant B" },
+];
+
+test("the heat map has one row per student of the variant and one cell per question", () => {
+  const data = analyzeVariant("Variant A", attempts, questions);
+  assert.equal(data.attempts, 4);
+  assert.deepEqual(data.rows.map(row => row.student), ["Aigerim", "Bolat", "Dana", "Erlan"]);
+  assert.deepEqual(data.rows[0].cells, [1, 1]);
+  assert.deepEqual(data.rows[2].cells, [0, null], "an answer awaiting review is not counted as wrong");
+  assert.equal(data.rows[0].total, 1);
+  assert.equal(data.rows[2].total, null);
+});
+
+test("question stats find the hard question and its most common wrong answer", () => {
+  const [q1, q2] = analyzeVariant("Variant A", attempts, questions).questions;
+  assert.equal(q1.average, 0.25);
+  assert.equal(q1.level, "hard");
+  assert.deepEqual(q1.wrongAnswers, [{ answer: "3", count: 2 }, { answer: "5", count: 1 }]);
+  assert.equal(q2.graded, 3);
+  assert.equal(q2.unanswered, 1);
+  assert.deepEqual(q2.wrongAnswers, [], "free-text answers are not grouped");
+});
+
+test("questions removed from the test after sharing still appear by number", () => {
+  const data = analyzeVariant("Variant A", attempts, [questions[1]]);
+  assert.equal(data.questions[0].text, "");
+  assert.equal(data.questions[1].text, "Capital?");
+});
+
+test("the student review shows answers, the key and pending checks", () => {
+  const review = answerReview({ title: "T", instructions: "", questions }, { q1: "3", q2: "astana city" }, attempts[2].result);
+  assert.deepEqual(review.map(item => [item.given, item.correct, item.score]), [["3", "4", 0], ["astana city", "Astana", null]]);
+  assert.equal(review[0].explanation, "Add");
+  assert.deepEqual(answerReview({ title: "T", instructions: "", questions }, {}, null).map(item => item.given), ["", ""]);
+});

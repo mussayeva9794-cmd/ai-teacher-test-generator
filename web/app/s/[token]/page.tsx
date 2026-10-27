@@ -12,6 +12,8 @@ import { Brand, BRAND_NAME } from "../../brand";
 import { useT } from "../../i18n-provider";
 import { LanguageSwitcher } from "../../language-switcher";
 import { AnswerInput, type StudentQuestion } from "./answer-input";
+import { AnswerReview } from "./answer-review";
+import type { ReviewItem } from "@/lib/assessment";
 
 type StudentTest = {
   submitted: boolean; title: string; topic: string; variant_name: string; percentage?: number | null;
@@ -28,6 +30,7 @@ type StudentTest = {
   server_now?: string;
   // The server waits for full screen before starting a new strict attempt.
   awaiting_fullscreen?: boolean;
+  review?: ReviewItem[];
 };
 type IntegrityResponse = { leaves: number; locked: boolean; submitted?: boolean; server_now: string };
 type StrictNextResponse = {
@@ -52,6 +55,7 @@ export default function StudentPage() {
   const [confirming, setConfirming] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [percentage, setPercentage] = useState<number | null>(null);
+  const [review, setReview] = useState<ReviewItem[] | null>(null);
   const [timeExpired, setTimeExpired] = useState(false);
   const [submissionWarning, setSubmissionWarning] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -89,6 +93,7 @@ export default function StudentPage() {
   function applyLoaded(result: StudentTest) {
     if (result.submitted) {
       setPercentage(result.percentage ?? null);
+      setReview(Array.isArray(result.review) ? result.review : null);
       setSubmitted(true);
       return;
     }
@@ -216,7 +221,7 @@ export default function StudentPage() {
     try {
       const draftSaved = await flushPendingDraft();
       // Expired and locked attempts are graded from the server-saved draft only.
-      const result = await api<{ percentage: number | null; expired?: boolean; locked?: boolean }>(`/api/share/${token}/submit`, {
+      const result = await api<{ percentage: number | null; expired?: boolean; locked?: boolean; review?: ReviewItem[] }>(`/api/share/${token}/submit`, {
         method: "POST", body: JSON.stringify(expired || locked || strict ? {} : { answers }),
       });
       const wasLocked = Boolean(locked || result.locked);
@@ -225,6 +230,7 @@ export default function StudentPage() {
         closingFullscreen.current = true;
         void document.exitFullscreen().catch(() => undefined);
       }
+      setReview(Array.isArray(result.review) ? result.review : null);
       setPercentage(result.percentage); setTimeExpired(wasExpired); setLockedSubmission(wasLocked); setSubmissionWarning(wasExpired && !draftSaved); setSubmitted(true); setConfirming(false);
     } catch (cause) { setError(serverMessage(t, cause instanceof Error ? cause.message : "", st.submitFailed)); }
     finally { setBusy(false); }
@@ -411,7 +417,7 @@ export default function StudentPage() {
   const statusText = { loading: st.statusLoading, saved: st.statusSaved, savedNow: st.statusSavedNow, saving: st.statusSaving, offline: st.statusOffline }[status];
   const clock = (seconds: number) => `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
   return <div className="student-shell"><header className="topbar"><Brand /><LanguageSwitcher /><nav className="navlinks"><button className="btn ghost" disabled={busy} onClick={() => void signOutForNextStudent()}>{st.switchAccount}</button><span className="watermark">{displayName}</span></nav></header>
-    {submitted ? <main className="panel student-card" style={{ marginTop: "8vh", textAlign: "center" }}><div className="draw-in"><SubmittedCheck /></div><h1 style={{ fontSize: "2.3rem" }}>{lockedSubmission ? st.submittedLocked : timeExpired ? st.submittedTimeUp : st.submitted}</h1><p className="muted">{lockedSubmission ? st.submittedLockedText : timeExpired ? st.submittedTimeUpText : st.submittedText}</p>{submissionWarning && <div className="notice" role="status">{st.lastAnswerWarning}</div>}{percentage !== null && <p className="metric">{percentage}%</p>}<button className="btn primary" disabled={busy} onClick={() => void signOutForNextStudent()}>{st.handOver}</button><p className="small muted">{st.sharedDevice}</p></main> : awaitingFullscreen && !test ? <main className="stack"><section className="page-head"><div className="eyebrow">{variantLabel(awaitingFullscreen.variant_name, t)} / {awaitingFullscreen.topic}</div><h1 style={{ fontSize: "clamp(1.8rem,5vw,3rem)" }}>{awaitingFullscreen.title}</h1></section><div className="panel student-card stack fullscreen-gate"><h2>{st.fullscreenTitle}</h2><p className="muted">{st.fullscreenText}</p>{error && <p className="error">{error}</p>}<button className="btn primary" disabled={busy} onClick={() => void startAfterFullscreen()}>{st.fullscreenStart}</button></div></main> : error && !test ? <main className="panel student-card error">{error}</main> : !test ? <div className="panel">{st.loadingTest}</div> : <main className={strict ? "stack strict-test" : "stack"} onCopy={strict ? e => blockClipboard(e, "copy") : undefined} onCut={strict ? e => blockClipboard(e, "copy") : undefined} onPaste={strict ? e => blockClipboard(e, "paste") : undefined} onContextMenu={strict ? preventDefault : undefined} onDragStart={strict ? preventDefault : undefined} onDrop={strict ? preventDefault : undefined}><section className="page-head"><div className="eyebrow">{variantLabel(test.variant_name, t)} / {test.topic}</div><h1 style={{ fontSize: "clamp(1.8rem,5vw,3rem)" }}>{test.title}</h1><p className="muted">{test.variant.instructions}</p></section>
+    {submitted ? <main className="panel student-card" style={{ marginTop: "8vh", textAlign: "center" }}><div className="draw-in"><SubmittedCheck /></div><h1 style={{ fontSize: "2.3rem" }}>{lockedSubmission ? st.submittedLocked : timeExpired ? st.submittedTimeUp : st.submitted}</h1><p className="muted">{lockedSubmission ? st.submittedLockedText : timeExpired ? st.submittedTimeUpText : st.submittedText}</p>{submissionWarning && <div className="notice" role="status">{st.lastAnswerWarning}</div>}{percentage !== null && <p className="metric">{percentage}%</p>}<button className="btn primary" disabled={busy} onClick={() => void signOutForNextStudent()}>{st.handOver}</button><p className="small muted">{st.sharedDevice}</p>{review?.length ? <AnswerReview items={review} /> : null}</main> : awaitingFullscreen && !test ? <main className="stack"><section className="page-head"><div className="eyebrow">{variantLabel(awaitingFullscreen.variant_name, t)} / {awaitingFullscreen.topic}</div><h1 style={{ fontSize: "clamp(1.8rem,5vw,3rem)" }}>{awaitingFullscreen.title}</h1></section><div className="panel student-card stack fullscreen-gate"><h2>{st.fullscreenTitle}</h2><p className="muted">{st.fullscreenText}</p>{error && <p className="error">{error}</p>}<button className="btn primary" disabled={busy} onClick={() => void startAfterFullscreen()}>{st.fullscreenStart}</button></div></main> : error && !test ? <main className="panel student-card error">{error}</main> : !test ? <div className="panel">{st.loadingTest}</div> : <main className={strict ? "stack strict-test" : "stack"} onCopy={strict ? e => blockClipboard(e, "copy") : undefined} onCut={strict ? e => blockClipboard(e, "copy") : undefined} onPaste={strict ? e => blockClipboard(e, "paste") : undefined} onContextMenu={strict ? preventDefault : undefined} onDragStart={strict ? preventDefault : undefined} onDrop={strict ? preventDefault : undefined}><section className="page-head"><div className="eyebrow">{variantLabel(test.variant_name, t)} / {test.topic}</div><h1 style={{ fontSize: "clamp(1.8rem,5vw,3rem)" }}>{test.title}</h1><p className="muted">{test.variant.instructions}</p></section>
       {strict && <div className="notice strict-banner" role="note"><b>{st.strictTitle}</b>{st.strictLead}{test.settings.leave_limit !== null && test.settings.leave_limit !== undefined && <>{st.strictLeavesBefore}<b>{Math.min(leaves, test.settings.leave_limit + 1)}</b>{st.strictLeavesAfter(test.settings.leave_limit)}</>}{st.strictCopy(questionSeconds)}</div>}
       {strict && secondScreen && <div className="notice" role="alert">{st.secondScreen}</div>}
       <div className="row small muted"><span>{st.progress(complete, questionCount)} · {statusText}</span>{remaining !== null && <b style={{ color: remaining < 60 ? "var(--wine)" : "var(--ink)" }}>{st.remaining(clock(remaining))}</b>}</div>{remaining !== null && remaining > 0 && remaining <= 15 && <div className="notice" role="status">{st.endingSoon}</div>}<div className="progress" role="progressbar" aria-valuenow={complete} aria-valuemax={questionCount}><span style={{ width: `${questionCount ? complete / questionCount * 100 : 0}%` }} /></div>
