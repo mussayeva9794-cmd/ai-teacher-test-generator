@@ -68,3 +68,4 @@
 .question-editor > .row:first-child .eyebrow { white-space: nowrap; }
 @media (max-width: 560px) { .editor-actions { width: 100%; justify-content: flex-start; } }
 .print-match ol i { flex: 0 0 90px; }
+.editor-fields { border: 0; padding: 0; margin: 0; min-width: 0; display: grid; gap: 16px; }

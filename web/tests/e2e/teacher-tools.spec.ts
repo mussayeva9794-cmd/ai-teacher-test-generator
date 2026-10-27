@@ -143,6 +143,9 @@ test("saving while a question is being replaced cannot drop the new question", a
   page.once("dialog", dialog => void dialog.accept());
   await page.locator(".question-editor").nth(1).getByRole("button", { name: "Заменить через ИИ" }).click();
   await expect(page.getByRole("button", { name: "Сохранить" })).toBeDisabled();
+  // The question being replaced cannot be edited until the new one arrives.
+  await expect(page.locator(".question-editor").nth(1).getByLabel("Формулировка")).toBeDisabled();
+  await expect(page.locator(".question-editor").first().getByLabel("Объяснение")).toBeEnabled();
   releaseRegeneration();
   await expect(page.locator(".question-editor").nth(1).getByLabel("Формулировка")).toHaveValue("Новый вопрос");
   await page.getByRole("button", { name: "Сохранить" }).click();
