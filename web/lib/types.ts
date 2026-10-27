@@ -1,5 +1,8 @@
 export type QuestionType = "multiple_choice" | "multiple_select" | "true_false" | "short_answer" | "matching" | "ordering";
 
+// Levels of thinking (Bloom), as used in Kazakhstan's summative assessment tables.
+export type BloomLevel = "knowledge" | "understanding" | "application" | "higher";
+
 export type Question = {
   id: string;
   type: QuestionType;
@@ -15,6 +18,16 @@ export type Question = {
   explanation: string;
   skill_tag: string;
   source_reference?: string;
+  bloom_level?: BloomLevel;
+};
+
+/** One row of a СОР/СОЧ table: what a task checks and how it is scored. */
+export type RubricRow = { task: number; criterion: string; descriptor: string; points: number };
+
+export type Assessment = {
+  // СОР: summative assessment for a unit; СОЧ: for a term.
+  kind: "sor" | "soch";
+  rows: RubricRow[];
 };
 
 export type TestSource = {
@@ -29,6 +42,7 @@ export type TestVariant = {
   questions: Question[];
   // Stored in the variant JSON so existing database rows remain compatible.
   sources?: TestSource[];
+  assessment?: Assessment;
 };
 
 export type ShareSettings = {

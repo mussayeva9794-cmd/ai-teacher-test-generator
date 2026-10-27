@@ -3,6 +3,8 @@ import type { Question, TestVariant } from "./types";
 // Pure validation shared by the API and the teacher editor, which shows the
 // teacher which question still needs fixing before the server would reject it.
 
+export const BLOOM_LEVELS = ["knowledge", "understanding", "application", "higher"] as const;
+
 export const QUESTION_TYPES = ["multiple_choice", "multiple_select", "true_false", "short_answer", "matching", "ordering"] as const;
 
 export type QuestionProblem =
@@ -28,7 +30,8 @@ export function questionProblem(value: unknown): QuestionProblem | null {
   const question = value as Partial<Question>;
   if (typeof question.id !== "string" || !question.id.trim() || typeof question.question !== "string" ||
     typeof question.correct_answer !== "string" || !(QUESTION_TYPES as readonly string[]).includes(question.type || "") ||
-    (question.source_reference !== undefined && (typeof question.source_reference !== "string" || question.source_reference.length > 320))) return "invalid";
+    (question.source_reference !== undefined && (typeof question.source_reference !== "string" || question.source_reference.length > 320)) ||
+    (question.bloom_level !== undefined && !(BLOOM_LEVELS as readonly string[]).includes(question.bloom_level))) return "invalid";
   if (!question.question.trim()) return "empty_question";
 
   if (question.type === "multiple_select") {
@@ -94,6 +97,8 @@ export function isValidVariant(value: unknown): value is TestVariant {
       return true;
     }))) return false;
 
+  if (variant.assessment !== undefined && !isValidAssessment(variant.assessment)) return false;
+
   const ids = new Set<string>();
   return variant.questions.every((question) => {
     if (questionProblem(question) !== null) return false;
@@ -101,5 +106,20 @@ export function isValidVariant(value: unknown): value is TestVariant {
     if (ids.has(question.id)) return false;
     ids.add(question.id);
     return true;
+  });
+}
+
+function isValidAssessment(value: unknown): boolean {
+  if (!value || typeof value !== "object") return false;
+  const assessment = value as { kind?: unknown; rows?: unknown };
+  if (assessment.kind !== "sor" && assessment.kind !== "soch") return false;
+  if (!Array.isArray(assessment.rows) || assessment.rows.length > 60) return false;
+  return assessment.rows.every((row) => {
+    if (!row || typeof row !== "object") return false;
+    const item = row as { task?: unknown; criterion?: unknown; descriptor?: unknown; points?: unknown };
+    return Number.isInteger(item.task) && (item.task as number) >= 1 && (item.task as number) <= 50 &&
+      typeof item.criterion === "string" && item.criterion.length <= 500 &&
+      typeof item.descriptor === "string" && item.descriptor.length <= 500 &&
+      Number.isInteger(item.points) && (item.points as number) >= 0 && (item.points as number) <= 10;
   });
 }

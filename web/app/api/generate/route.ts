@@ -1,6 +1,6 @@
 import type { NextRequest } from "next/server";
 import { actorFromRequest, jsonError } from "@/lib/auth";
-import { generateVariants, GroqGenerationError, type GenerateInput } from "@/lib/groq";
+import { BLOOM_MIXES, generateRubrics, generateVariants, GroqGenerationError, type BloomMix, type GenerateInput } from "@/lib/groq";
 import { userClient } from "@/lib/supabase";
 import { adminClient } from "@/lib/supabase-admin";
 import { QUESTION_TYPES } from "@/lib/question-validation";
@@ -25,6 +25,8 @@ export async function POST(request: NextRequest) {
   if (!body.language || !["russian", "kazakh", "english"].includes(body.language)) {
     return jsonError("Choose a language.");
   }
+  const bloomMix: BloomMix = typeof body.bloomMix === "string" && Object.hasOwn(BLOOM_MIXES, body.bloomMix) ? body.bloomMix : "balanced";
+  const format = body.format === "sor" || body.format === "soch" ? body.format : "test";
   const sourceText = String(body.sourceText || "").trim().slice(0, 12000);
   const sourceTitle = String(body.sourceTitle || "").trim().slice(0, 180);
   const sourcePages = String(body.sourcePages || "").trim().slice(0, 120);
@@ -48,19 +50,20 @@ export async function POST(request: NextRequest) {
   }
   const { window } = reservation;
   const releaseQuota = () => releaseGenerationWindow(adminClient, actor.id, window);
+  const input: GenerateInput = {
+    topic, count, type: body.type, language: body.language,
+    gradeLevel: String(body.gradeLevel || "").slice(0, 80),
+    objective: String(body.objective || "").slice(0, 1000),
+    sourceText, bloomMix, format,
+    sources: sourceText ? [{
+      label: sourceTitle || "Материал, добавленный преподавателем",
+      ...(sourcePages ? { pages: sourcePages } : {}),
+      ...(sourceUrl ? { url: sourceUrl } : {}),
+    }] : [],
+  };
   let variants;
   try {
-    variants = await generateVariants({
-      topic, count, type: body.type, language: body.language,
-      gradeLevel: String(body.gradeLevel || "").slice(0, 80),
-      objective: String(body.objective || "").slice(0, 1000),
-      sourceText,
-      sources: sourceText ? [{
-        label: sourceTitle || "Материал, добавленный преподавателем",
-        ...(sourcePages ? { pages: sourcePages } : {}),
-        ...(sourceUrl ? { url: sourceUrl } : {}),
-      }] : [],
-    });
+    variants = await generateVariants(input);
   } catch (error) {
     const reason = error instanceof GroqGenerationError ? error.reason : "upstream";
     console.error("Generation failed", {
@@ -77,6 +80,16 @@ export async function POST(request: NextRequest) {
     } as const;
     await releaseQuota();
     return jsonError(messages[reason], reason === "rate_limit" ? 429 : 503);
+  }
+
+  if (format !== "test") {
+    // The criteria table is an extra; a failure here still returns the test.
+    try {
+      const rubrics = await generateRubrics(input, variants);
+      for (const [name, assessment] of Object.entries(rubrics)) variants[name] = { ...variants[name], assessment };
+    } catch (error) {
+      console.error("Rubric generation failed", { reason: error instanceof GroqGenerationError ? error.reason : "upstream" });
+    }
   }
 
   const { data, error } = await db.from("web_tests").insert({

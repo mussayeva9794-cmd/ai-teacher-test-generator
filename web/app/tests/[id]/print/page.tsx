@@ -64,6 +64,17 @@ function Sheet({ title, name, variant, s }: { title: string; name: string; varia
   </section>;
 }
 
+function RubricTable({ variant, s }: { variant: TestVariant; s: Dictionary }) {
+  const assessment = variant.assessment!;
+  const p = s.testPage;
+  return <table className="print-rubric">
+    <caption>{p.rubricTitle(s.labels.assessmentKind[assessment.kind])}</caption>
+    <thead><tr><th>{p.rubricCriterion}</th><th>{p.bloomLevel}</th><th>{p.rubricTask}</th><th>{p.rubricDescriptor}</th><th>{p.rubricPoints}</th></tr></thead>
+    <tbody>{assessment.rows.map((row, i) => { const level = variant.questions[row.task - 1]?.bloom_level; return <tr key={i}><td>{row.criterion}</td><td>{level ? s.labels.bloom[level] : ""}</td><td>{row.task}</td><td>{row.descriptor}</td><td>{row.points}</td></tr>; })}</tbody>
+    <tfoot><tr><td colSpan={4}>{p.rubricTotal(assessment.rows.reduce((sum, row) => sum + row.points, 0))}</td><td /></tr></tfoot>
+  </table>;
+}
+
 export default function PrintPage() {
   const { id } = useParams<{ id: string }>();
   const t = useT();
@@ -93,6 +104,6 @@ export default function PrintPage() {
       </div>}
     </div>
     {test && names.map(name => <Sheet key={name} title={test.title} name={name} variant={test.variants[name]} s={sheet} />)}
-    {test && withKey && names.length > 0 && <section className="print-sheet print-key"><h1>{sheet.print.keyTitle}: {test.title}</h1>{names.map(name => <div key={name} className="print-key-block"><h2>{sheet.print.keyFor(variantLabel(name, sheet))}</h2><ol>{test.variants[name].questions.map(question => <li key={question.id}>{correctLabel(question, sheet.print.letters)}</li>)}</ol></div>)}</section>}
+    {test && withKey && names.length > 0 && <section className="print-sheet print-key"><h1>{sheet.print.keyTitle}: {test.title}</h1>{names.map(name => <div key={name} className="print-key-block"><h2>{sheet.print.keyFor(variantLabel(name, sheet))}</h2><ol>{test.variants[name].questions.map(question => <li key={question.id}>{correctLabel(question, sheet.print.letters)}</li>)}</ol>{test.variants[name].assessment && <RubricTable variant={test.variants[name]} s={sheet} />}</div>)}</section>}
   </div>;
 }

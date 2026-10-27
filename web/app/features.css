@@ -112,3 +112,24 @@
 .level-easy .item-bar span { background: #3f9b72; }
 .pill.soft { background: #e6f2ec; color: #205b42; }
 .ai-hint { margin-top: 6px; padding: 8px 10px; border-radius: 10px; background: #f3ecf7; color: #4b2a5c; }
+
+/* СОР / СОЧ table */
+.rubric-scroll { overflow-x: auto; }
+.rubric-table { min-width: 720px; }
+.rubric-table th { white-space: nowrap; }
+.rubric-table td { vertical-align: top; padding: 8px; }
+.rubric-table textarea, .rubric-table input { width: 100%; border: 1px solid #dcd1c8; border-radius: 10px; background: white; padding: 8px 10px; font: inherit; font-size: .85rem; }
+.rubric-table textarea { min-height: 64px; resize: vertical; }
+.rubric-table input { width: 64px; }
+.rubric-num { font-weight: 800; text-align: center; }
+.print-rubric { width: 100%; border-collapse: collapse; margin-top: 14px; font-size: 13px; }
+.print-rubric caption { text-align: left; font-weight: 800; margin-bottom: 6px; }
+.print-rubric th, .print-rubric td { border: 1px solid #555; padding: 6px 8px; vertical-align: top; text-align: left; color: #111; }
+.print-rubric th { background: #f1ece6; font-weight: 700; }
+.print-rubric tfoot td { font-weight: 800; }
+@media print { .print-rubric th { background: #eee; } .print-key-block { break-inside: avoid-page; } }
+
+/* Lesson material on the create page */
+.source-head { flex-wrap: wrap; align-items: center; }
+.source-actions { gap: 8px; flex-wrap: wrap; }
+.source-actions .btn { padding: 9px 13px; font-size: .88rem; }
