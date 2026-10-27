@@ -3,15 +3,18 @@ import { actorFromRequest, jsonError } from "@/lib/auth";
 import { isValidVariant } from "@/lib/assessment";
 import { answerText } from "@/lib/answer-format";
 import { quotaErrorResponse, releaseGenerationWindow, reserveGenerationWindow } from "@/lib/generation-quota";
-import { GroqGenerationError, suggestGrades, type GenerateInput, type GradeRequest } from "@/lib/groq";
+import { GroqGenerationError, groqErrorResponse, suggestGrades, type GenerateInput, type GradeRequest } from "@/lib/groq";
 import { userClient } from "@/lib/supabase";
 import { adminClient } from "@/lib/supabase-admin";
 import type { Question, TestRow, TestVariant } from "@/lib/types";
 
 export const maxDuration = 120;
 
-// One request grades at most this many attempts; the teacher can press again.
+// One request grades at most this many attempts and open answers; pressing
+// again moves on to the next attempts, because the browser sends the ones it has.
 const MAX_ATTEMPTS = 30;
+const MAX_ITEMS = 80;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const LANGUAGES = ["russian", "kazakh", "english"] as const;
 
 type PerQuestion = { id: string; score: number | null; requires_manual_review?: boolean };
@@ -31,10 +34,15 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   if (testError) return jsonError("Could not verify test ownership.", 503);
   if (!testData) return jsonError("Test not found.", 404);
   const test = testData as Pick<TestRow, "id" | "language" | "variants">;
+  let body: { exclude?: unknown } = {};
+  try { body = await request.json(); } catch { /* no body: start from the oldest */ }
+  const exclude = Array.isArray(body?.exclude) ? body.exclude.filter((value): value is string => typeof value === "string" && UUID.test(value)).slice(0, 500) : [];
 
-  const { data: attemptData, error: attemptError } = await db.from("web_attempts")
+  let attemptQuery = db.from("web_attempts")
     .select("id,link_id,variant_name,answers,result").eq("test_id", id).eq("result->>requires_manual_review", "true")
     .order("submitted_at", { ascending: true }).limit(MAX_ATTEMPTS);
+  if (exclude.length) attemptQuery = attemptQuery.not("id", "in", `(${exclude.join(",")})`);
+  const { data: attemptData, error: attemptError } = await attemptQuery;
   if (attemptError) return jsonError("Could not load results.", 503);
   const attempts = (attemptData || []) as AttemptRow[];
   if (!attempts.length) return Response.json({ suggestions: [] });
@@ -56,15 +64,19 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   for (const attempt of attempts) {
     const variant = variantOf(attempt);
     if (!variant) continue;
+    const mine: GradeRequest[] = [];
     for (const row of attempt.result?.per_question || []) {
       if (!row?.requires_manual_review) continue;
       const question = variant.questions.find((item: Question) => item.id === row.id);
       if (!question) continue;
-      items.push({
+      mine.push({
         key: `${attempt.id}:${row.id}`, question: question.question,
         modelAnswer: question.correct_answer, studentAnswer: answerText(question, attempt.answers?.[row.id]),
       });
     }
+    // Whole attempts only: a partly suggested attempt would have no total.
+    if (items.length + mine.length > MAX_ITEMS) break;
+    items.push(...mine);
   }
   if (!items.length) return Response.json({ suggestions: [] });
 
@@ -73,14 +85,12 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   const language = (LANGUAGES as readonly string[]).includes(test.language) ? test.language as GenerateInput["language"] : "russian";
   let grades;
   try {
-    grades = await suggestGrades(items.slice(0, 80), language);
+    grades = await suggestGrades(items, language);
   } catch (cause) {
     await releaseGenerationWindow(adminClient, actor.id, reservation.window);
     const reason = cause instanceof GroqGenerationError ? cause.reason : "upstream";
     console.error("Grade suggestion failed", { reason });
-    if (reason === "rate_limit") return jsonError("Groq request limit was reached. Wait one minute and retry.", 429);
-    if (reason === "timeout") return jsonError("Groq took too long to answer. Retry the generation.", 503);
-    return jsonError("Groq is temporarily unavailable. Retry shortly.", 503);
+    return groqErrorResponse(cause);
   }
   const byKey = new Map(grades.map((grade) => [grade.key, grade]));
 

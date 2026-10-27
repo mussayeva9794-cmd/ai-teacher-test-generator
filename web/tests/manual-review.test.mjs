@@ -66,6 +66,8 @@ test("overall manual score leaves every question explicitly unscored", async () 
     { id: "q1", score: null, requires_manual_review: false },
     { id: "q2", score: null, requires_manual_review: false },
   ]);
+  // The auto-graded score survives for analytics; the open answer gets none.
+  assert.deepEqual(updates[0].result.per_question.map(item => item.auto_score), [1, undefined]);
 });
 
 test("review rejects invalid scores and non-pending attempts without writing", async () => {

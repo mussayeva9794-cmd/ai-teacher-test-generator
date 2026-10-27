@@ -9,7 +9,7 @@ export type AnalyticsAttempt = {
   student_name: string;
   variant_name: string;
   answers: Record<string, unknown>;
-  result?: { per_question?: { id: string; score: number | null; requires_manual_review?: boolean }[] } | null;
+  result?: { per_question?: { id: string; score: number | null; auto_score?: number; requires_manual_review?: boolean }[] } | null;
 };
 
 export type QuestionStats = {
@@ -26,7 +26,9 @@ export type QuestionStats = {
   level: "easy" | "ok" | "hard" | null;
 };
 
-export type HeatRow = { attemptId: string; student: string; total: number | null; cells: (number | null)[] };
+// "absent": the student's version of the variant did not have this question.
+export type HeatCell = number | null | "absent";
+export type HeatRow = { attemptId: string; student: string; total: number | null; cells: HeatCell[] };
 
 export type VariantAnalytics = { variant: string; attempts: number; questions: QuestionStats[]; rows: HeatRow[] };
 
@@ -57,30 +59,33 @@ export function analyzeVariant(variant: string, attempts: AnalyticsAttempt[], qu
     // manual review cleared.
     const cells = ids.map((id) => {
       const row = stored.get(id);
-      // A question this attempt was not graded on (another snapshot) has no score.
-      if (!row) return null;
+      // A question this attempt was not graded on (another link's version) is absent.
+      if (!row) return "absent" as const;
       const question = byId.get(id);
       if (question) return shownScore(question, attempt.answers?.[id], row);
       return row && !row.requires_manual_review && typeof row.score === "number" ? row.score : null;
     });
-    const graded = cells.filter((cell): cell is number => cell !== null);
+    // The total covers the questions this student actually had.
+    const own = cells.filter((cell) => cell !== "absent");
+    const graded = own.filter((cell): cell is number => typeof cell === "number");
     return {
       attemptId: attempt.id, student: attempt.student_name, cells,
-      total: graded.length === cells.length && cells.length ? graded.reduce((sum, cell) => sum + cell, 0) / cells.length : null,
+      total: graded.length === own.length && own.length ? graded.reduce((sum, cell) => sum + cell, 0) / own.length : null,
     };
   });
 
   const stats = ids.map((id, index): QuestionStats => {
     const question = byId.get(id);
-    const scores = rows.map((row) => row.cells[index]).filter((cell): cell is number => cell !== null);
+    const scores = rows.map((row) => row.cells[index]).filter((cell): cell is number => typeof cell === "number");
     const average = scores.length ? scores.reduce((sum, score) => sum + score, 0) / scores.length : null;
     const wrong = new Map<string, number>();
     let unanswered = 0;
     mine.forEach((attempt, row) => {
+      if (rows[row].cells[index] === "absent") return;
       const answer = attempt.answers?.[id];
       if (isEmpty(answer)) { unanswered += 1; return; }
       const cell = rows[row].cells[index];
-      if (question?.options && cell !== null && cell < 1) wrong.set(key(answer), (wrong.get(key(answer)) || 0) + 1);
+      if (question?.options && typeof cell === "number" && cell < 1) wrong.set(key(answer), (wrong.get(key(answer)) || 0) + 1);
     });
     return {
       id, number: index + 1, text: question?.question || "", type: question?.type || null,

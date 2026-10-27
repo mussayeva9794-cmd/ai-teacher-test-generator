@@ -17,10 +17,20 @@ const SHEET_LOCALE = { russian: "ru", kazakh: "kk", english: "en" } as const;
 /** Letter for choice `i`, falling back to a number past the end of the alphabet given. */
 const choiceLabel = (letters: string, i: number) => letters[i] ?? String(i + 1);
 
-/** Ordering items printed out of order; any fixed order that is not the answer works on paper. */
+/** Ordering items printed in a fixed shuffled order (per question) that is never the answer. */
 function scrambledItems(question: Question) {
   const items = question.items || [];
-  return items.length < 2 ? [...items] : [...items.slice(1), items[0]].reverse();
+  if (items.length < 2) return [...items];
+  // A small seeded generator: the same question always prints the same way.
+  let seed = [...question.id].reduce((hash, char) => Math.imul(hash ^ char.charCodeAt(0), 16777619) >>> 0, 2166136261);
+  const next = () => { seed = Math.imul(seed ^ (seed >>> 15), 2246822507) >>> 0; seed ^= seed >>> 13; return seed / 4294967296; };
+  const result = [...items];
+  for (let i = result.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(next() * (i + 1));
+    [result[i], result[j]] = [result[j], result[i]];
+  }
+  if (result.every((item, i) => item === items[i])) result.push(result.shift()!);
+  return result;
 }
 
 /** Right-hand matching items in the same sorted order students see. */

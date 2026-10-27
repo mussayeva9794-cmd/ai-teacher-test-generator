@@ -61,3 +61,22 @@ test("a teacher's manual review does not hide the auto-graded answers", () => {
   const review = answerReview({ title: "T", instructions: "", questions }, reviewed.answers, reviewed.result);
   assert.deepEqual(review.map(item => [item.score, item.checked]), [[1, false], [null, true]]);
 });
+
+test("questions from another version of the variant do not erase a student's total", () => {
+  const otherLink = { id: "o1", student_name: "Other link", variant_name: "Variant A", answers: { q1: "4", q3: "x" },
+    result: { per_question: [{ id: "q1", score: 1 }, { id: "q3", score: 0 }] } };
+  const mine = { id: "m1", student_name: "This link", variant_name: "Variant A", answers: { q1: "4", q2: "Astana" },
+    result: { per_question: [{ id: "q1", score: 1 }, { id: "q2", score: 1 }] } };
+  const data = analyzeVariant("Variant A", [mine, otherLink], questions);
+  const row = data.rows.find(item => item.student === "This link");
+  assert.deepEqual(row.cells, [1, 1, "absent"]);
+  assert.equal(row.total, 1);
+  assert.equal(data.rows.find(item => item.student === "Other link").total, 0.5);
+});
+
+test("a manual review keeps the auto-graded score that analytics shows", () => {
+  const reviewed = { id: "r2", student_name: "R", variant_name: "Variant A", answers: { q1: "3" },
+    result: { manually_reviewed_by: "t", per_question: [{ id: "q1", score: null, auto_score: 1 }] } };
+  // auto_score wins over rescoring with today's (possibly edited) key.
+  assert.deepEqual(analyzeVariant("Variant A", [reviewed], questions).rows[0].cells, [1]);
+});

@@ -507,3 +507,11 @@ export async function imagesToText(images: string[]): Promise<string> {
     throw new GroqGenerationError("invalid_response", "Groq returned invalid JSON.");
   }
 }
+
+/** The response a route returns for a failed Groq call. */
+export function groqErrorResponse(cause: unknown, fallback = "Groq is temporarily unavailable. Retry shortly.") {
+  const reason = cause instanceof GroqGenerationError ? cause.reason : "upstream";
+  if (reason === "rate_limit") return Response.json({ error: "Groq request limit was reached. Wait one minute and retry." }, { status: 429 });
+  if (reason === "timeout") return Response.json({ error: "Groq took too long to answer. Retry the generation." }, { status: 503 });
+  return Response.json({ error: fallback }, { status: 503 });
+}

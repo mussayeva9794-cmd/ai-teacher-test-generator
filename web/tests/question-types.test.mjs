@@ -48,3 +48,15 @@ test("validation of the new types", () => {
   assert.equal(questionProblem({ ...order, items: ["a", "b", ""] }), "items_empty");
   assert.equal(questionProblem({ ...order, items: ["a", "b", "A"] }), "items_duplicate");
 });
+
+test("an ordering question left as shown is graded on the order the student saw", () => {
+  const shown = studentVariant({ ...variant, questions: [order] }).questions[0].items;
+  const expected = order.items.filter((item, i) => shown[i] === item).length / order.items.length;
+  const result = grade({ ...variant, questions: [order] }, {});
+  assert.equal(result.per_question[0].score, expected);
+  assert.equal(result.percentage, Math.round(expected * 10000) / 100);
+});
+
+test("a multiple-select question needs at least one wrong option", () => {
+  assert.equal(questionProblem({ ...select, correct_answers: ["2", "3", "4", "9"] }), "correct_answers_all");
+});

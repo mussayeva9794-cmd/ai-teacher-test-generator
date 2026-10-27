@@ -51,3 +51,11 @@ test("replacing a question checks ownership, the request shape and own variant n
   assert.match(regenerateRoute, /reserveGenerationWindow\(db\)/);
   assert.match(regenerateRoute, /releaseGenerationWindow\(adminClient, actor\.id, reservation\.window\)/);
 });
+
+test("AI replacement works for questions not saved yet and suggestions move on", () => {
+  assert.match(regenerateRoute, /stored\?\.type \?\? \(typeof body\.type === "string" && \(QUESTION_TYPES as readonly string\[\]\)\.includes\(body\.type\)/);
+  const suggest = read("../app/api/tests/[id]/attempts/suggest/route.ts");
+  assert.match(suggest, /attemptQuery\.not\("id", "in", `\(\$\{exclude\.join\(","\)\}\)`\)/);
+  assert.match(suggest, /UUID\.test\(value\)/);
+  assert.match(suggest, /if \(items\.length \+ mine\.length > MAX_ITEMS\) break;/);
+});

@@ -32,12 +32,8 @@ export function AnswerInput({ question: q, answer, number, onAnswer }: Props) {
   if (q.type === "matching") {
     const given = answer && typeof answer === "object" ? answer as Record<string, string> : {};
     const set = (left: string, right: string) => onAnswer({ ...given, [left]: right });
-    // Older links were created before choices were sent; keep free text there.
-    if (!q.match_options?.length) {
-      return <div className="stack">{q.pairs?.map((pair, i) => <label className="field" key={i}>{pair.left}<input value={String(given[pair.left] || "")} onChange={e => set(pair.left, e.target.value)} placeholder={st.matchingPlaceholder} /></label>)}</div>;
-    }
     const used = new Set(Object.values(given).filter(Boolean));
-    return <div className="stack match-grid" role="group" aria-label={st.answerTo(number)}>{q.pairs?.map((pair, i) => <label className="match-row" key={i}><span className="match-left">{pair.left}</span><select value={given[pair.left] || ""} onChange={e => set(pair.left, e.target.value)}><option value="">{st.matchingChoose}</option>{q.match_options!.map(option => <option key={option} value={option}>{used.has(option) && given[pair.left] !== option ? `${option} ✓` : option}</option>)}</select></label>)}</div>;
+    return <div className="stack match-grid" role="group" aria-label={st.answerTo(number)}>{q.pairs?.map((pair, i) => <label className="match-row" key={i}><span className="match-left">{pair.left}</span><select value={given[pair.left] || ""} onChange={e => set(pair.left, e.target.value)}><option value="">{st.matchingChoose}</option>{(q.match_options || []).map(option => <option key={option} value={option}>{used.has(option) && given[pair.left] !== option ? `${option} ✓` : option}</option>)}</select></label>)}</div>;
   }
   return <label className="field">{st.yourAnswer}<textarea value={String(answer || "")} onChange={e => onAnswer(e.target.value)} placeholder={st.answerPlaceholder} /></label>;
 }

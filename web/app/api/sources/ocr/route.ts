@@ -1,7 +1,7 @@
 import type { NextRequest } from "next/server";
 import { actorFromRequest, jsonError } from "@/lib/auth";
 import { quotaErrorResponse, releaseGenerationWindow, reserveGenerationWindow } from "@/lib/generation-quota";
-import { GroqGenerationError, imagesToText } from "@/lib/groq";
+import { GroqGenerationError, groqErrorResponse, imagesToText } from "@/lib/groq";
 import { userClient } from "@/lib/supabase";
 import { adminClient } from "@/lib/supabase-admin";
 
@@ -38,8 +38,6 @@ export async function POST(request: NextRequest) {
     await releaseGenerationWindow(adminClient, actor.id, reservation.window);
     const reason = cause instanceof GroqGenerationError ? cause.reason : "upstream";
     console.error("Photo text recognition failed", { reason, upstreamStatus: cause instanceof GroqGenerationError ? cause.upstreamStatus : undefined });
-    if (reason === "rate_limit") return jsonError("Groq request limit was reached. Wait one minute and retry.", 429);
-    if (reason === "timeout") return jsonError("Groq took too long to answer. Retry the generation.", 503);
-    return jsonError("Photo recognition is temporarily unavailable. Paste the text or upload a PDF instead.", 503);
+    return groqErrorResponse(cause, "Photo recognition is temporarily unavailable. Paste the text or upload a PDF instead.");
   }
 }

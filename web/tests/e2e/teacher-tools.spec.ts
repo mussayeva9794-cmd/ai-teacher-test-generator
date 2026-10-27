@@ -97,7 +97,7 @@ test("replace with AI swaps in the new question without saving it", async ({ pag
   await page.locator(".question-editor").first().getByRole("button", { name: "Заменить через ИИ" }).click();
   await expect(page.getByText("Вопрос заменён. Проверьте его и сохраните тест.")).toBeVisible();
   await expect(page.locator(".question-editor").first().getByLabel("Формулировка")).toHaveValue("Новый вопрос про дроби");
-  expect(regenerations).toEqual([{ variant_name: "Variant A", question_id: "easy-A1", question: "Сколько будет 1/2 + 1/2? (A)" }]);
+  expect(regenerations).toEqual([{ variant_name: "Variant A", question_id: "easy-A1", question: "Сколько будет 1/2 + 1/2? (A)", type: "multiple_choice", skill_tag: "дроби" }]);
   expect(saves).toHaveLength(0);
   await expect(page.getByText("Есть несохранённые изменения")).toBeVisible();
 });

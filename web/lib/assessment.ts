@@ -53,13 +53,22 @@ export function scrambled(items: string[], seed: string): string[] {
   return result;
 }
 
+/**
+ * An ordering question the student never moved still has an order on screen:
+ * the starting order every student is shown. Grade and review that order.
+ */
+function effectiveAnswer(question: Question, answer: unknown): unknown {
+  return question.type === "ordering" && !Array.isArray(answer) && question.items?.length
+    ? scrambled(question.items, question.id) : answer;
+}
+
 export function grade(variant: TestVariant, answers: Record<string, unknown>) {
   const needsReview = (question: Question) => needsTeacher(question, answers[question.id]);
   const requiresManualReview = variant.questions.some(needsReview);
   const perQuestion = variant.questions.map((question) => ({
     id: question.id,
     skill_tag: question.skill_tag,
-    score: questionScore(question, answers[question.id]),
+    score: questionScore(question, effectiveAnswer(question, answers[question.id])),
     requires_manual_review: needsReview(question),
   }));
   const total = perQuestion.reduce((sum, result) => sum + result.score, 0);
@@ -114,11 +123,12 @@ export function answerReview(variant: TestVariant, answers: Record<string, unkno
   if (Array.isArray(rows)) for (const row of rows) if (row && typeof row.id === "string") perQuestion.set(row.id, row);
   const reviewed = Boolean(result && typeof result === "object" && (result as { manually_reviewed_by?: unknown }).manually_reviewed_by);
   return variant.questions.map((question) => {
-    const score = shownScore(question, answers?.[question.id], perQuestion.get(question.id));
+    const answer = effectiveAnswer(question, answers?.[question.id]);
+    const score = shownScore(question, answer, perQuestion.get(question.id));
     return {
       id: question.id,
       question: question.question,
-      given: answerText(question, answers?.[question.id]),
+      given: answerText(question, answer),
       correct: correctText(question),
       explanation: question.explanation || "",
       score,

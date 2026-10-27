@@ -19,6 +19,7 @@ export type QuestionProblem =
   | "pairs_duplicate"
   | "answer_empty"
   | "correct_answers_missing"
+  | "correct_answers_all"
   | "items_count"
   | "items_empty"
   | "items_duplicate";
@@ -43,7 +44,8 @@ export function questionProblem(value: unknown): QuestionProblem | null {
     if (!Array.isArray(question.correct_answers) || !question.correct_answers.every((answer) => typeof answer === "string")) return "invalid";
     const correct = question.correct_answers.map(key);
     if (!correct.length || new Set(correct).size !== correct.length || !correct.every((answer) => normalizedOptions.includes(answer))) return "correct_answers_missing";
-    return null;
+    // With every option correct, ticking everything would score full marks.
+    return correct.length < question.options.length ? null : "correct_answers_all";
   }
 
   if (question.type === "ordering") {

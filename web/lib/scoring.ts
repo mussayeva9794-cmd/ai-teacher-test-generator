@@ -40,15 +40,17 @@ export function needsTeacher(question: Question, answer: unknown): boolean {
     normalized(answer) !== normalized(question.correct_answer);
 }
 
-type StoredRow = { score?: number | null; requires_manual_review?: boolean } | undefined;
+type StoredRow = { score?: number | null; auto_score?: number; requires_manual_review?: boolean } | undefined;
 
 /**
- * The score to show for one answer. A teacher's manual review stores only the
- * total and clears every per-question score, so auto-gradable answers are
- * scored again here; open answers that needed the teacher stay null.
+ * The score to show for one answer. A teacher's manual review clears every
+ * per-question score and keeps the grader's auto_score; reviews saved before
+ * that are scored again here. Open answers that needed the teacher stay null.
  */
 export function shownScore(question: Question, answer: unknown, stored: StoredRow): number | null {
   if (stored?.requires_manual_review) return null;
   if (typeof stored?.score === "number") return stored.score;
+  if (typeof stored?.auto_score === "number") return stored.auto_score;
+  // Reviews saved before auto_score existed: score again with the current key.
   return needsTeacher(question, answer) ? null : questionScore(question, answer);
 }

@@ -1,10 +1,11 @@
 import type { NextRequest } from "next/server";
 import { actorFromRequest, jsonError } from "@/lib/auth";
-import { generateQuestion, GroqGenerationError, type GenerateInput } from "@/lib/groq";
+import { generateQuestion, GroqGenerationError, groqErrorResponse, type GenerateInput } from "@/lib/groq";
 import { quotaErrorResponse, releaseGenerationWindow, reserveGenerationWindow } from "@/lib/generation-quota";
 import { userClient } from "@/lib/supabase";
 import { adminClient } from "@/lib/supabase-admin";
-import type { TestRow } from "@/lib/types";
+import { QUESTION_TYPES } from "@/lib/question-validation";
+import type { QuestionType, TestRow } from "@/lib/types";
 
 // Same budget as full generation: one question can still go through retries and the fallback model.
 export const maxDuration = 300;
@@ -32,7 +33,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   const actor = await actorFromRequest(request);
   if (!actor || actor.role !== "teacher") return jsonError("Teacher sign-in required.", 401);
   const { id } = await params;
-  let body: { variant_name?: unknown; question_id?: unknown; question?: unknown };
+  let body: { variant_name?: unknown; question_id?: unknown; question?: unknown; type?: unknown; skill_tag?: unknown };
   try { body = await request.json(); } catch { return jsonError("Invalid request body."); }
   if (!body || typeof body !== "object" || Array.isArray(body) ||
       typeof body.variant_name !== "string" || typeof body.question_id !== "string") return jsonError("Invalid request body.");
@@ -44,10 +45,17 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   // Only the test's own variants; never inherited names such as "__proto__".
   const variant = test.variants && typeof test.variants === "object" && Object.hasOwn(test.variants, body.variant_name)
     ? test.variants[body.variant_name] : undefined;
-  // The editor may hold unsaved edits, so it sends the wording it shows; the
-  // saved question decides only the type and skill.
-  const saved = Array.isArray(variant?.questions) ? variant.questions.find((question) => question?.id === body.question_id) : undefined;
-  if (!variant || !saved) return jsonError("Question not found.", 404);
+  if (!variant || !Array.isArray(variant.questions)) return jsonError("Question not found.", 404);
+  // The editor may hold unsaved edits or a question that is not saved yet, so it
+  // sends what it shows; a saved question decides the type and skill itself.
+  const stored = variant.questions.find((question) => question?.id === body.question_id);
+  const type = stored?.type ?? (typeof body.type === "string" && (QUESTION_TYPES as readonly string[]).includes(body.type) ? body.type as QuestionType : null);
+  if (!type) return jsonError("Question not found.", 404);
+  const saved = {
+    id: body.question_id, type,
+    question: stored?.question ?? "",
+    skill_tag: stored?.skill_tag ?? (typeof body.skill_tag === "string" ? body.skill_tag.slice(0, 120) : ""),
+  };
   const language = (LANGUAGES as readonly string[]).includes(test.language) ? test.language as GenerateInput["language"] : "russian";
   const difficulty = questionDifficulty(body.variant_name, saved.id);
   const current = typeof body.question === "string" ? body.question.slice(0, 1000) : saved.question;
@@ -68,9 +76,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     await releaseGenerationWindow(adminClient, actor.id, reservation.window);
     const reason = cause instanceof GroqGenerationError ? cause.reason : "upstream";
     console.error("Question regeneration failed", { reason });
-    if (reason === "rate_limit") return jsonError("Groq request limit was reached. Wait one minute and retry.", 429);
-    if (reason === "timeout") return jsonError("Groq took too long to answer. Retry the generation.", 503);
     if (reason === "invalid_response") return jsonError("AI returned an incomplete test. Retry or add more source material.", 503);
-    return jsonError("Groq is temporarily unavailable. Retry shortly.", 503);
+    return groqErrorResponse(cause);
   }
 }

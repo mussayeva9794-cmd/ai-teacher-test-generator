@@ -1,13 +1,13 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { analyzeVariant, type AnalyticsAttempt } from "@/lib/analytics";
+import { analyzeVariant, type AnalyticsAttempt, type HeatCell } from "@/lib/analytics";
 import { variantLabel } from "@/lib/labels";
 import type { TestRow } from "@/lib/types";
 import type { Dictionary } from "@/lib/i18n/dictionaries";
 
 const pct = (value: number) => Math.round(value * 100);
-const tone = (value: number | null) => value === null ? "pending" : value >= 1 ? "right" : value > 0 ? "partly" : "wrong";
+const tone = (value: HeatCell) => value === "absent" ? "none" : value === null ? "pending" : value >= 1 ? "right" : value > 0 ? "partly" : "wrong";
 // A class average is coloured by how well the class did, not by any score above zero.
 const averageTone = (value: number | null) => value === null ? "pending" : value >= 0.9 ? "right" : value < 0.4 ? "wrong" : "partly";
 
@@ -19,7 +19,7 @@ export function ClassAnalytics({ t, test, attempts }: { t: Dictionary; test: Tes
   const data = useMemo(() => variant ? analyzeVariant(variant, attempts, test.variants[variant]?.questions || []) : null, [variant, attempts, test]);
   if (!data || !data.attempts) return <p className="muted">{p.analyticsNone}</p>;
   const hardestFirst = [...data.questions].sort((a, b) => (a.average ?? 2) - (b.average ?? 2));
-  const cellText = (value: number | null) => value === null ? p.heatPending : `${pct(value)}%`;
+  const cellText = (value: HeatCell) => value === "absent" ? p.heatAbsent : value === null ? p.heatPending : `${pct(value)}%`;
   return <div className="stack analytics">
     {variants.length > 1 && <div className="tabs">{variants.map(name => <button key={name} className={name === variant ? "active" : ""} onClick={() => setVariant(name)}>{variantLabel(name, t)}</button>)}</div>}
     <p className="muted small" style={{ margin: 0 }}>{p.analyticsLead}</p>

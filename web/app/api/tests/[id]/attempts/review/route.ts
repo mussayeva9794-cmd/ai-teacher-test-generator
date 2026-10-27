@@ -30,9 +30,13 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     ? attempt.result as Record<string, unknown> : {};
   if (result.requires_manual_review !== true) return jsonError("This attempt does not require manual review.", 409);
   const perQuestion = Array.isArray(result.per_question)
-    ? result.per_question.map((item) => item && typeof item === "object"
-      ? { ...(item as Record<string, unknown>), score: null, requires_manual_review: false }
-      : item)
+    ? result.per_question.map((item) => {
+      if (!item || typeof item !== "object") return item;
+      const row = item as { score?: unknown; requires_manual_review?: unknown };
+      // Kept for analytics: the score an auto-graded answer got at submission.
+      const autoScore = row.requires_manual_review !== true && typeof row.score === "number" ? { auto_score: row.score } : {};
+      return { ...(item as Record<string, unknown>), score: null, requires_manual_review: false, ...autoScore };
+    })
     : [];
 
   const { error } = await admin.from("web_attempts").update({
