@@ -29,7 +29,7 @@ test("refund locks and changes only the DB-returned reservation window", () => {
 test("generation fails closed without a reservation and refunds on both failure paths", () => {
   assert.match(route, /const reservation = await reserveGenerationWindow\(db\)/);
   assert.match(route, /if \(reservation\.status !== "allowed"\)[\s\S]*?429\)[\s\S]*?503\)/);
-  assert.match(route, /releaseGenerationWindow\(adminClient\(\), actor\.id, window\)/);
+  assert.match(route, /releaseGenerationWindow\(adminClient, actor\.id, window\)/);
   assert.equal((route.match(/await releaseQuota\(\)/g) || []).length, 2);
 });
 
@@ -44,6 +44,8 @@ test("the reservation helper returns only the DB-issued window and fails closed"
   assert.deepEqual(await reserveGenerationWindow({ rpc: async () => { throw new Error("network"); } }), { status: "unavailable" });
 
   const released = [];
-  await releaseGenerationWindow({ rpc: async (...args) => { released.push(args); return { error: null }; } }, "teacher-id", "w1");
+  await releaseGenerationWindow(() => ({ rpc: async (...args) => { released.push(args); return { error: null }; } }), "teacher-id", "w1");
   assert.deepEqual(released, [["release_web_generation_quota_v2", { p_owner_id: "teacher-id", p_window_start: "w1" }]]);
+  // A missing server key while building the client is logged, never thrown.
+  await releaseGenerationWindow(() => { throw new Error("SUPABASE_SECRET_KEY is missing"); }, "teacher-id", "w1");
 });

@@ -38,7 +38,7 @@ function Sheet({ title, name, variant, s }: { title: string; name: string; varia
       <p className="print-question">{question.question}</p>
       {question.type === "multiple_choice" && <ul className="print-options">{question.options?.map((option, i) => <li key={i}><b>{pr.letters[i] ?? i + 1})</b> {option}</li>)}</ul>}
       {question.type === "true_false" && <><p className="print-hint">{pr.trueFalseHint}</p><p className="print-tf">{question.options?.map((option, i) => <span key={i}>{option}</span>)}</p></>}
-      {question.type === "matching" && <><p className="print-hint">{pr.matchHint}</p><div className="print-match"><ol>{question.pairs?.map((pair, i) => <li key={i}>{pair.left} <i /></li>)}</ol><ul>{matchChoices(question).map((choice, i) => <li key={i}><b>{pr.letters[i] ?? i + 1})</b> {choice}</li>)}</ul></div></>}
+      {question.type === "matching" && <><p className="print-hint">{pr.matchHint}</p><div className="print-match"><ol>{question.pairs?.map((pair, i) => <li key={i}><b>{i + 1}.</b> {pair.left} <i /></li>)}</ol><ul>{matchChoices(question).map((choice, i) => <li key={i}><b>{pr.letters[i] ?? i + 1})</b> {choice}</li>)}</ul></div></>}
       {question.type === "short_answer" && <div className="print-lines"><i /><i /></div>}
     </li>)}</ol>
   </section>;

@@ -37,7 +37,7 @@
 .print-tf { display: flex; gap: 28px; margin: 0; }
 .print-tf span { border: 1px solid #999; border-radius: 99px; padding: 2px 14px; }
 .print-match { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 24px; }
-.print-match ol { margin: 0; padding-left: 1.3em; display: grid; gap: 6px; }
+.print-match ol { margin: 0; padding: 0; list-style: none; display: grid; gap: 6px; }
 .print-match ol li { display: flex; gap: 10px; }
 .print-match ul { grid-template-columns: 1fr; }
 .print-lines { display: grid; gap: 18px; padding-top: 10px; }

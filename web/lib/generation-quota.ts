@@ -38,9 +38,10 @@ export async function reserveGenerationWindow(db: Pick<SupabaseClient, "rpc">): 
 }
 
 /** Give a reserved generation back when the AI call or the save failed. */
-export async function releaseGenerationWindow(admin: Pick<SupabaseClient, "rpc">, ownerId: string, window: string) {
+export async function releaseGenerationWindow(admin: () => Pick<SupabaseClient, "rpc">, ownerId: string, window: string) {
   try {
-    const { error } = await admin.rpc("release_web_generation_quota_v2", { p_owner_id: ownerId, p_window_start: window });
+    // The admin client is built here so a missing server key is logged, not thrown.
+    const { error } = await admin().rpc("release_web_generation_quota_v2", { p_owner_id: ownerId, p_window_start: window });
     if (error) console.error("Generation quota release failed", { code: error.code });
   } catch {
     console.error("Generation quota release failed", { code: "server_configuration_error" });

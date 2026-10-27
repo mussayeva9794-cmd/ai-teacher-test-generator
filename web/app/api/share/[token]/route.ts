@@ -23,6 +23,15 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   let { data: draft, error: loadError } = await admin.from("web_drafts")
     .select("answers,started_at,updated_at").eq("link_id", link.id).eq("student_id", actor.id).maybeSingle();
   if (loadError) return jsonError("Could not load your draft.", 503);
+  // A browser that can go full screen asks first, so the attempt clock and the
+  // first question's clock start only once the student is in full screen.
+  if (!draft && settings.strict_mode && settings.require_fullscreen &&
+      request.nextUrl.searchParams.get("start") === "after_fullscreen") {
+    return Response.json({
+      submitted: false, awaiting_fullscreen: true, title: test.title, topic: test.topic, variant_name: link.variant_name,
+      server_now: new Date().toISOString(),
+    });
+  }
   if (!draft) {
     const { data: startStatus, error: startError } = await admin.rpc("start_web_draft_if_open", {
       p_link_id: link.id,

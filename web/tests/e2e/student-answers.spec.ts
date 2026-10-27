@@ -16,14 +16,23 @@ const matching = {
 };
 
 async function openTest(page: Page, settings: Record<string, unknown>, questions = [matching]) {
-  const mock = { drafts: [] as unknown[], events: [] as string[] };
+  const mock = { drafts: [] as unknown[], events: [] as string[], started: false, gets: [] as string[] };
   await page.addInitScript(([key, value]) => window.localStorage.setItem(key, value), [
     `sb-${new URL(supabaseUrl).hostname.split(".")[0]}-auth-token`,
     JSON.stringify({ access_token: "a", refresh_token: "r", token_type: "bearer", expires_in: 3600, expires_at: Math.floor(Date.now() / 1000) + 3600, user }),
   ]);
   await page.route(`${supabaseUrl}/**`, route => route.fulfill({ json: user }));
   const strict = settings.strict_mode === true;
-  await page.route(`**/api/share/${TOKEN}`, route => route.fulfill({ json: {
+  const mockGets = mock.gets;
+  await page.route(url => url.pathname === `/api/share/${TOKEN}`, route => {
+    const start = new URL(route.request().url()).searchParams.get("start") || "";
+    mockGets.push(start);
+    // Like the server: a new full-screen attempt waits until the student is in full screen.
+    if (start === "after_fullscreen" && settings.require_fullscreen && strict && !mock.started) {
+      return route.fulfill({ json: { submitted: false, awaiting_fullscreen: true, title: "Дроби", topic: "Повторение", variant_name: "Variant A", server_now: new Date().toISOString() } });
+    }
+    mock.started = true;
+    return route.fulfill({ json: {
     submitted: false, title: "Дроби", topic: "Повторение", variant_name: "Variant A",
     variant: { instructions: "Отвечайте сами.", questions },
     settings: { one_question_at_a_time: true, reveal_score: false, ...settings },
@@ -33,7 +42,8 @@ async function openTest(page: Page, settings: Record<string, unknown>, questions
       strict_progress: { current_index: 0, question_started_at: new Date().toISOString(), finished: false },
     } : {}),
     server_now: new Date().toISOString(),
-  } }));
+  } });
+  });
   await page.route(`**/api/share/${TOKEN}/draft`, async route => {
     mock.drafts.push(route.request().postDataJSON());
     await route.fulfill({ json: { saved_at: new Date().toISOString() } });
@@ -61,8 +71,12 @@ test("a strict test asks for full screen first and counts leaving it", async ({ 
   const mock = await openTest(page, { strict_mode: true, leave_limit: 2, question_seconds: 0, require_fullscreen: true });
   await expect(page.getByRole("heading", { name: "Тест проходит в полноэкранном режиме" })).toBeVisible();
   await expect(page.getByText("Сопоставьте дроби")).toHaveCount(0);
+  // The attempt (and its clocks) has not been started yet.
+  expect(mock.started).toBe(false);
+  expect(mock.gets).toEqual(["after_fullscreen"]);
   await page.getByRole("button", { name: "Открыть тест на весь экран" }).click();
   await expect(page.getByText("Сопоставьте дроби")).toBeVisible();
+  expect(mock.gets).toEqual(["after_fullscreen", ""]);
   expect(mock.events.filter(kind => kind === "leave")).toHaveLength(0);
 
   await page.evaluate(() => document.exitFullscreen());

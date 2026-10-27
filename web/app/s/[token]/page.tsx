@@ -26,6 +26,8 @@ type StudentTest = {
   integrity?: { leaves: number; locked: boolean };
   strict_progress?: { current_index: number; question_started_at: string; finished: boolean };
   server_now?: string;
+  // The server waits for full screen before starting a new strict attempt.
+  awaiting_fullscreen?: boolean;
 };
 type IntegrityResponse = { leaves: number; locked: boolean; submitted?: boolean; server_now: string };
 type StrictNextResponse = {
@@ -76,6 +78,7 @@ export default function StudentPage() {
   const fullscreenEnteredRef = useRef(false);
   const closingFullscreen = useRef(false);
   const [secondScreen, setSecondScreen] = useState(false);
+  const [awaitingFullscreen, setAwaitingFullscreen] = useState<StudentTest | null>(null);
 
   const strict = Boolean(test?.settings.strict_mode);
   const questionSeconds = strict ? test?.settings.question_seconds || 0 : 0;
@@ -83,33 +86,60 @@ export default function StudentPage() {
   const needFullscreen = strict && Boolean(test?.settings.require_fullscreen) &&
     typeof document !== "undefined" && document.fullscreenEnabled;
 
+  function applyLoaded(result: StudentTest) {
+    if (result.submitted) {
+      setPercentage(result.percentage ?? null);
+      setSubmitted(true);
+      return;
+    }
+    // Device clocks on school phones are often minutes off; count the timer on the server clock.
+    if (result.server_now) clockOffset.current = Date.parse(result.server_now) - Date.now();
+    if (result.settings.strict_mode && result.integrity) {
+      setLeaves(result.integrity.leaves);
+      setStrictIndex(result.strict_progress?.current_index || 0);
+      setQuestionStartedAt(result.strict_progress?.question_started_at || null);
+      // The server resumes the exact open question; a reload cannot reset it.
+      resumeFinished.current = Boolean(result.strict_progress?.finished);
+      if (result.integrity.locked || result.strict_progress?.finished) timeoutSubmissionStarted.current = true;
+      if (result.integrity.locked) setLockedSubmission(true);
+    }
+    setTest(result); setAnswers(result.answers || {}); setStatus("saved");
+    latestAnswers.current = result.answers || {};
+    lastSaved.current = JSON.stringify(result.answers || {}); loaded.current = true;
+  }
+
+  async function startAfterFullscreen() {
+    setError("");
+    try {
+      await document.documentElement.requestFullscreen();
+    } catch {
+      setError(st.fullscreenFailed);
+      return;
+    }
+    fullscreenEnteredRef.current = true; setFullscreenEntered(true);
+    setBusy(true);
+    try {
+      const result = await api<StudentTest>(`/api/share/${token}`);
+      setAwaitingFullscreen(null);
+      applyLoaded(result);
+    } catch (cause) {
+      setError(serverMessage(t, cause instanceof Error ? cause.message : ""));
+    } finally { setBusy(false); }
+  }
+
   useEffect(() => {
     let active = true;
     browserClient().auth.getUser().then(({ data }) => {
       if (!active) return;
       if (!data.user) { router.replace(`/login?next=${encodeURIComponent(`/s/${token}`)}`); return; }
       setName(String(data.user.user_metadata?.display_name || data.user.email || ""));
-      api<StudentTest>(`/api/share/${token}`).then(result => {
+      // Where full screen is possible, ask the server not to start a new
+      // full-screen attempt yet; it answers awaiting_fullscreen in that case.
+      const query = document.fullscreenEnabled ? "?start=after_fullscreen" : "";
+      api<StudentTest>(`/api/share/${token}${query}`).then(result => {
         if (!active) return;
-        if (result.submitted) {
-          setPercentage(result.percentage ?? null);
-          setSubmitted(true);
-          return;
-        }
-        // Device clocks on school phones are often minutes off; count the timer on the server clock.
-        if (result.server_now) clockOffset.current = Date.parse(result.server_now) - Date.now();
-        if (result.settings.strict_mode && result.integrity) {
-          setLeaves(result.integrity.leaves);
-          setStrictIndex(result.strict_progress?.current_index || 0);
-          setQuestionStartedAt(result.strict_progress?.question_started_at || null);
-          // The server resumes the exact open question; a reload cannot reset it.
-          resumeFinished.current = Boolean(result.strict_progress?.finished);
-          if (result.integrity.locked || result.strict_progress?.finished) timeoutSubmissionStarted.current = true;
-          if (result.integrity.locked) setLockedSubmission(true);
-        }
-        setTest(result); setAnswers(result.answers || {}); setStatus("saved");
-        latestAnswers.current = result.answers || {};
-        lastSaved.current = JSON.stringify(result.answers || {}); loaded.current = true;
+        if (result.awaiting_fullscreen) { setAwaitingFullscreen(result); return; }
+        applyLoaded(result);
       }).catch(cause => { if (active) setError(serverMessage(t, cause.message)); });
     });
     return () => { active = false; };
@@ -274,6 +304,8 @@ export default function StudentPage() {
     document.addEventListener("fullscreenchange", onFullscreen);
     window.addEventListener("blur", leave);
     window.addEventListener("focus", back);
+    // Full screen may have been left while the test was still loading.
+    if (needFullscreen && fullscreenEnteredRef.current && !document.fullscreenElement) leave();
     return () => {
       document.removeEventListener("visibilitychange", onVisibility);
       document.removeEventListener("fullscreenchange", onFullscreen);
@@ -379,7 +411,7 @@ export default function StudentPage() {
   const statusText = { loading: st.statusLoading, saved: st.statusSaved, savedNow: st.statusSavedNow, saving: st.statusSaving, offline: st.statusOffline }[status];
   const clock = (seconds: number) => `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
   return <div className="student-shell"><header className="topbar"><Brand /><LanguageSwitcher /><nav className="navlinks"><button className="btn ghost" disabled={busy} onClick={() => void signOutForNextStudent()}>{st.switchAccount}</button><span className="watermark">{displayName}</span></nav></header>
-    {submitted ? <main className="panel student-card" style={{ marginTop: "8vh", textAlign: "center" }}><div className="draw-in"><SubmittedCheck /></div><h1 style={{ fontSize: "2.3rem" }}>{lockedSubmission ? st.submittedLocked : timeExpired ? st.submittedTimeUp : st.submitted}</h1><p className="muted">{lockedSubmission ? st.submittedLockedText : timeExpired ? st.submittedTimeUpText : st.submittedText}</p>{submissionWarning && <div className="notice" role="status">{st.lastAnswerWarning}</div>}{percentage !== null && <p className="metric">{percentage}%</p>}<button className="btn primary" disabled={busy} onClick={() => void signOutForNextStudent()}>{st.handOver}</button><p className="small muted">{st.sharedDevice}</p></main> : error && !test ? <main className="panel student-card error">{error}</main> : !test ? <div className="panel">{st.loadingTest}</div> : <main className={strict ? "stack strict-test" : "stack"} onCopy={strict ? e => blockClipboard(e, "copy") : undefined} onCut={strict ? e => blockClipboard(e, "copy") : undefined} onPaste={strict ? e => blockClipboard(e, "paste") : undefined} onContextMenu={strict ? preventDefault : undefined} onDragStart={strict ? preventDefault : undefined} onDrop={strict ? preventDefault : undefined}><section className="page-head"><div className="eyebrow">{variantLabel(test.variant_name, t)} / {test.topic}</div><h1 style={{ fontSize: "clamp(1.8rem,5vw,3rem)" }}>{test.title}</h1><p className="muted">{test.variant.instructions}</p></section>
+    {submitted ? <main className="panel student-card" style={{ marginTop: "8vh", textAlign: "center" }}><div className="draw-in"><SubmittedCheck /></div><h1 style={{ fontSize: "2.3rem" }}>{lockedSubmission ? st.submittedLocked : timeExpired ? st.submittedTimeUp : st.submitted}</h1><p className="muted">{lockedSubmission ? st.submittedLockedText : timeExpired ? st.submittedTimeUpText : st.submittedText}</p>{submissionWarning && <div className="notice" role="status">{st.lastAnswerWarning}</div>}{percentage !== null && <p className="metric">{percentage}%</p>}<button className="btn primary" disabled={busy} onClick={() => void signOutForNextStudent()}>{st.handOver}</button><p className="small muted">{st.sharedDevice}</p></main> : awaitingFullscreen && !test ? <main className="stack"><section className="page-head"><div className="eyebrow">{variantLabel(awaitingFullscreen.variant_name, t)} / {awaitingFullscreen.topic}</div><h1 style={{ fontSize: "clamp(1.8rem,5vw,3rem)" }}>{awaitingFullscreen.title}</h1></section><div className="panel student-card stack fullscreen-gate"><h2>{st.fullscreenTitle}</h2><p className="muted">{st.fullscreenText}</p>{error && <p className="error">{error}</p>}<button className="btn primary" disabled={busy} onClick={() => void startAfterFullscreen()}>{st.fullscreenStart}</button></div></main> : error && !test ? <main className="panel student-card error">{error}</main> : !test ? <div className="panel">{st.loadingTest}</div> : <main className={strict ? "stack strict-test" : "stack"} onCopy={strict ? e => blockClipboard(e, "copy") : undefined} onCut={strict ? e => blockClipboard(e, "copy") : undefined} onPaste={strict ? e => blockClipboard(e, "paste") : undefined} onContextMenu={strict ? preventDefault : undefined} onDragStart={strict ? preventDefault : undefined} onDrop={strict ? preventDefault : undefined}><section className="page-head"><div className="eyebrow">{variantLabel(test.variant_name, t)} / {test.topic}</div><h1 style={{ fontSize: "clamp(1.8rem,5vw,3rem)" }}>{test.title}</h1><p className="muted">{test.variant.instructions}</p></section>
       {strict && <div className="notice strict-banner" role="note"><b>{st.strictTitle}</b>{st.strictLead}{test.settings.leave_limit !== null && test.settings.leave_limit !== undefined && <>{st.strictLeavesBefore}<b>{Math.min(leaves, test.settings.leave_limit + 1)}</b>{st.strictLeavesAfter(test.settings.leave_limit)}</>}{st.strictCopy(questionSeconds)}</div>}
       {strict && secondScreen && <div className="notice" role="alert">{st.secondScreen}</div>}
       <div className="row small muted"><span>{st.progress(complete, questionCount)} · {statusText}</span>{remaining !== null && <b style={{ color: remaining < 60 ? "var(--wine)" : "var(--ink)" }}>{st.remaining(clock(remaining))}</b>}</div>{remaining !== null && remaining > 0 && remaining <= 15 && <div className="notice" role="status">{st.endingSoon}</div>}<div className="progress" role="progressbar" aria-valuenow={complete} aria-valuemax={questionCount}><span style={{ width: `${questionCount ? complete / questionCount * 100 : 0}%` }} /></div>

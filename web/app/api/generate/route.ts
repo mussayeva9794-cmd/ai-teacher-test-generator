@@ -46,7 +46,7 @@ export async function POST(request: NextRequest) {
       : jsonError("Generation is temporarily unavailable. Check the database migration.", 503);
   }
   const { window } = reservation;
-  const releaseQuota = () => releaseGenerationWindow(adminClient(), actor.id, window);
+  const releaseQuota = () => releaseGenerationWindow(adminClient, actor.id, window);
   let variants;
   try {
     variants = await generateVariants({

@@ -23,16 +23,19 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   const { id } = await params;
   let body: { variant_name?: unknown; question_id?: unknown; question?: unknown };
   try { body = await request.json(); } catch { return jsonError("Invalid request body."); }
-  if (typeof body.variant_name !== "string" || typeof body.question_id !== "string") return jsonError("Invalid request body.");
+  if (!body || typeof body !== "object" || Array.isArray(body) ||
+      typeof body.variant_name !== "string" || typeof body.question_id !== "string") return jsonError("Invalid request body.");
   const db = userClient(actor.accessToken);
   const { data, error } = await db.from("web_tests").select("id,topic,language,grade_level,variants")
     .eq("id", id).eq("owner_id", actor.id).maybeSingle();
   if (error || !data) return jsonError("Test not found.", 404);
   const test = data as Pick<TestRow, "id" | "topic" | "language" | "grade_level" | "variants">;
-  const variant = test.variants?.[body.variant_name];
+  // Only the test's own variants; never inherited names such as "__proto__".
+  const variant = test.variants && typeof test.variants === "object" && Object.hasOwn(test.variants, body.variant_name)
+    ? test.variants[body.variant_name] : undefined;
   // The editor may hold unsaved edits, so it sends the wording it shows; the
   // saved question decides only the type and skill.
-  const saved = variant?.questions.find((question) => question.id === body.question_id);
+  const saved = Array.isArray(variant?.questions) ? variant.questions.find((question) => question?.id === body.question_id) : undefined;
   if (!variant || !saved) return jsonError("Question not found.", 404);
   const language = (LANGUAGES as readonly string[]).includes(test.language) ? test.language as GenerateInput["language"] : "russian";
   const difficulty = VARIANT_DIFFICULTY[body.variant_name] || saved.id.split("-")[0] || "medium";
@@ -55,7 +58,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     do newId = `${difficulty}-r${crypto.randomUUID().slice(0, 8)}`; while (taken.has(newId));
     return Response.json({ question: { ...question, id: newId, skill_tag: saved.skill_tag || question.skill_tag } });
   } catch (cause) {
-    await releaseGenerationWindow(adminClient(), actor.id, reservation.window);
+    await releaseGenerationWindow(adminClient, actor.id, reservation.window);
     const reason = cause instanceof GroqGenerationError ? cause.reason : "upstream";
     console.error("Question regeneration failed", { reason });
     if (reason === "rate_limit") return jsonError("Groq request limit was reached. Wait one minute and retry.", 429);
