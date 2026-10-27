@@ -19,7 +19,7 @@ const SHEET_LOCALE = { russian: "ru", kazakh: "kk", english: "en" } as const;
 /** Letter for choice `i`, falling back to a number past the end of the alphabet given. */
 const choiceLabel = (letters: string, i: number) => letters[i] ?? String(i + 1);
 
-/** Ordering items in the same starting order students see online. */
+/** Ordering items printed shuffled. Paper shows no question ids, so an id seed is safe here; online uses a secret seed. */
 const scrambledItems = (question: Question) => scrambledOrder(question.items || [], question.id);
 
 /** Right-hand matching items in the same sorted order students see. */

@@ -46,8 +46,15 @@ export function studentVariant(variant: TestVariant) {
   };
 }
 
-/** A fixed shuffle per question that never equals the correct order. */
-export function scrambled(items: string[], seed: string): string[] {
+/**
+ * The starting order students get for an ordering question: fixed per
+ * question and never the answer. The seed mixes in a server-only secret,
+ * because the question id is sent to the browser and an id-only seed would
+ * let a student undo the shuffle and read off the correct order.
+ */
+export function scrambled(items: string[], questionId: string): string[] {
+  const secret = process.env.ORDERING_SEED_SECRET || process.env.SUPABASE_SECRET_KEY || "";
+  const seed = createHash("sha256").update(`mugalim-order:${secret}:${questionId}`).digest("hex");
   return scrambledOrder(items, seed);
 }
 

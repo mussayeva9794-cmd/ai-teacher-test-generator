@@ -61,3 +61,26 @@ test("an ordering question left as shown is graded on the order the student saw"
 test("a multiple-select question needs at least one wrong option", () => {
   assert.equal(questionProblem({ ...select, correct_answers: ["2", "3", "4", "9"] }), "correct_answers_all");
 });
+
+test("ticking every option scores 0 whatever the mix of right and wrong options", () => {
+  const many = { ...select, options: ["2", "3", "5", "9"], correct_answers: ["2", "3", "5"] };
+  const score = (answer) => grade({ ...variant, questions: [many] }, { s1: answer }).per_question[0].score;
+  assert.equal(score(["2", "3", "5", "9"]), 0);
+  assert.equal(score(["2", "3", "5"]), 1);
+  assert.equal(Math.round(score(["2", "3"]) * 1000) / 1000, 0.667);
+  const five = { ...select, options: ["a", "b", "c", "d", "e"], correct_answers: ["a", "b", "c", "d"] };
+  assert.equal(grade({ ...variant, questions: [five] }, { s1: ["a", "b", "c", "d", "e"] }).per_question[0].score, 0);
+});
+
+test("the ordering shuffle cannot be undone from the public question id", async () => {
+  const { scrambledOrder } = await import("../lib/scramble.ts");
+  const items = ["1", "2", "3", "4", "5", "6"];
+  process.env.ORDERING_SEED_SECRET = "server-only-secret";
+  const shown = scrambled(items, "q-public-id");
+  // What a student could compute from the id alone does not match what the server shows.
+  const guesses = [scrambledOrder(items, "q-public-id"), scrambledOrder(items, "q-public-id:items")];
+  assert.ok(guesses.every(guess => JSON.stringify(guess) !== JSON.stringify(shown)));
+  process.env.ORDERING_SEED_SECRET = "another-secret";
+  assert.notDeepEqual(scrambled(items, "q-public-id"), shown, "the order depends on the server secret");
+  delete process.env.ORDERING_SEED_SECRET;
+});

@@ -116,7 +116,7 @@ export default function StudentPage() {
     }
     // Answers typed while offline survive a reload; the autosave then sends them.
     const resumed = result.settings.strict_mode ? result.answers || {}
-      : restoreAnswers(result.answers || {}, result.saved_at, readBackup(token, userId.current), clockOffset.current);
+      : restoreAnswers(result.answers || {}, readBackup(token, userId.current));
     setTest(result); setAnswers(resumed); setStatus("saved");
     latestAnswers.current = resumed;
     lastSaved.current = JSON.stringify(result.answers || {}); loaded.current = true;
@@ -186,7 +186,11 @@ export default function StudentPage() {
               : { answers: pendingAnswers }),
           });
           lastSaved.current = pendingSerialized;
-          if (JSON.stringify(latestAnswers.current) === pendingSerialized) setStatus("savedNow");
+          if (JSON.stringify(latestAnswers.current) === pendingSerialized) {
+            setStatus("savedNow");
+            // The server now holds exactly what the student sees: the copy is no longer needed.
+            if (!strict) clearBackup(token, userId.current);
+          }
           return;
         } catch (cause) {
           if (attempt === 1) throw cause;

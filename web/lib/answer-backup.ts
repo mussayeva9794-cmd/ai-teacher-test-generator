@@ -1,4 +1,4 @@
-// A copy of a student's unsent answers in this browser, so a dropped
+// A copy of a student's not-yet-confirmed answers in this browser, so a dropped
 // connection or a reload does not lose them. Only for regular (non-strict)
 // tests: strict answers are accepted by the server one open question at a time.
 
@@ -34,14 +34,13 @@ export function clearAllBackups() {
 }
 
 /**
- * Answers to resume with: the backup wins only when it was written after the
- * server's last save (device time corrected by the server clock offset).
+ * Answers to resume with. The copy is cleared as soon as the server confirms
+ * exactly what it holds, so any copy still here has edits the server may not
+ * have: they always win over the server's answers. (Comparing typing time
+ * with the server's save time loses an answer when an older save lands late.)
  */
-export function restoreAnswers(server: Record<string, unknown>, serverSavedAt: string, backup: Backup | null, clockOffsetMs: number) {
-  if (!backup) return server;
-  const savedAt = Date.parse(serverSavedAt);
-  if (Number.isFinite(savedAt) && backup.at + clockOffsetMs <= savedAt) return server;
-  return { ...server, ...backup.answers };
+export function restoreAnswers(server: Record<string, unknown>, backup: Backup | null) {
+  return backup ? { ...server, ...backup.answers } : server;
 }
 
 // Long enough to survive a lost connection during a lesson, short enough not to linger.

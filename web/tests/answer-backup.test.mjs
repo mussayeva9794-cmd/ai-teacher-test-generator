@@ -4,23 +4,17 @@ import { restoreAnswers } from "../lib/answer-backup.ts";
 
 const server = { q1: "server", q2: "kept" };
 
-test("a backup newer than the server's last save wins, question by question", () => {
-  const savedAt = "2026-10-27T08:00:00Z";
-  const newer = { answers: { q1: "offline" }, at: Date.parse(savedAt) + 5000 };
-  assert.deepEqual(restoreAnswers(server, savedAt, newer, 0), { q1: "offline", q2: "kept" });
+test("an unconfirmed copy always wins, question by question", () => {
+  assert.deepEqual(restoreAnswers(server, { answers: { q1: "offline" }, at: 1 }), { q1: "offline", q2: "kept" });
+  assert.deepEqual(restoreAnswers(server, null), server);
 });
 
-test("an older backup never overwrites what the server has", () => {
-  const savedAt = "2026-10-27T08:00:00Z";
-  assert.deepEqual(restoreAnswers(server, savedAt, { answers: { q1: "old" }, at: Date.parse(savedAt) - 1 }, 0), server);
-  assert.deepEqual(restoreAnswers(server, savedAt, null, 0), server);
-});
-
-test("the device clock is corrected by the server offset before comparing", () => {
-  const savedAt = "2026-10-27T08:00:00Z";
-  // The device clock runs 10 minutes fast: its "later" backup is really older.
-  const fastDevice = { answers: { q1: "stale" }, at: Date.parse(savedAt) + 5 * 60_000 };
-  assert.deepEqual(restoreAnswers(server, savedAt, fastDevice, -10 * 60_000), server);
+test("a late save of an older answer cannot hide a newer unsent one", () => {
+  // 10:00:01 save of "old" starts; 10:00:02 the student types "new" (kept on
+  // the device); 10:00:03 the old save lands on the server; then a reload.
+  const serverAfterLateSave = { q1: "old" };
+  const copy = { answers: { q1: "new" }, at: Date.parse("2026-10-27T10:00:02Z") };
+  assert.deepEqual(restoreAnswers(serverAfterLateSave, copy), { q1: "new" });
 });
 
 test("other students' and day-old copies are removed from the device", async () => {

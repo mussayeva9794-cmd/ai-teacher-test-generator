@@ -12,10 +12,12 @@ export function questionScore(question: Question, answer: unknown): number {
     const correct = new Set((question.correct_answers || []).map(normalized));
     if (!Array.isArray(answer) || !correct.size) return 0;
     const chosen = new Set(answer.map(normalized));
+    const incorrect = (question.options || []).length - correct.size;
     let hits = 0; let wrong = 0;
     for (const item of chosen) if (correct.has(item)) hits += 1; else wrong += 1;
-    // Each wrong choice cancels a right one, so ticking everything scores 0.
-    return Math.max(0, (hits - wrong) / correct.size);
+    // Right ticks earn their share of the correct options and wrong ticks cost
+    // their share of the wrong ones, so ticking everything always scores 0.
+    return Math.max(0, hits / correct.size - (incorrect > 0 ? wrong / incorrect : wrong));
   }
   if (question.type === "ordering") {
     if (!Array.isArray(answer) || !question.items?.length) return 0;
