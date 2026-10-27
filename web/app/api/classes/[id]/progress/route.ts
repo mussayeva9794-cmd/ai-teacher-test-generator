@@ -15,7 +15,8 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   if (!classRow) return jsonError("Class not found or could not be updated.", 404);
   const [{ data: members, error: memberError }, { data: tests, error: testError }] = await Promise.all([
     db.from("web_class_members").select("email,student_id").eq("class_id", id),
-    db.from("web_tests").select("id,title").eq("owner_id", actor.id).order("created_at", { ascending: false }).limit(300),
+    // The latest 100 tests keep the id list well inside PostgREST's URL limit.
+    db.from("web_tests").select("id,title").eq("owner_id", actor.id).order("created_at", { ascending: false }).limit(100),
   ]);
   if (memberError || testError) return jsonError("Could not load results.", 503);
   const studentIds = (members || []).flatMap((member) => member.student_id ? [member.student_id as string] : []);
