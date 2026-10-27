@@ -312,6 +312,8 @@ export const kk: Dictionary = {
     rubricDescriptor: "Дескриптор",
     rubricPoints: "Балл",
     rubricTotal: (points: number) => `Барлық балл: ${points}`,
+    rubricAddRow: (task: number) => `+ ${task}-тапсырмаға жол`,
+    rubricRemove: (task: number) => `${task}-тапсырма жолын жою`,
     rubricStale: "Кесте құрылғаннан кейін тапсырмалар өзгерді — жол нөмірлерін тексеріңіз.",
     rubricMissing: "AI бұл нұсқаға кесте құра алмады. Тестті қолдануға болады, ал кестені басып шығару нұсқасында қолмен толтыруға болады.",
     correctMany: "Дұрыс жауаптар — барлығын белгілеңіз",

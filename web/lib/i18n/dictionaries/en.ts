@@ -314,6 +314,8 @@ export const en: Dictionary = {
     rubricDescriptor: "Descriptor",
     rubricPoints: "Points",
     rubricTotal: (points: number) => `Total points: ${points}`,
+    rubricAddRow: (task: number) => `+ Row for task ${task}`,
+    rubricRemove: (task: number) => `Remove the row for task ${task}`,
     rubricStale: "Tasks changed after the table was written — check the row numbers.",
     rubricMissing: "The AI could not write a table for this variant. The test still works; fill in the table by hand on paper.",
     correctMany: "Correct answers — mark all of them",

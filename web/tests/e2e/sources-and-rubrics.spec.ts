@@ -49,8 +49,10 @@ test("a PDF is read in the browser and sent with the SOR format and thinking lev
 test("photos are shrunk, read by AI and appended to the material", async ({ page }) => {
   await signIn(page);
   const uploads: { images: string[] }[] = [];
+  let finishReading: () => void = () => undefined;
   await page.route("**/api/sources/ocr", async route => {
     uploads.push(route.request().postDataJSON());
+    await new Promise<void>(resolve => { finishReading = resolve; });
     await route.fulfill({ json: { text: "§ 14. Закон Ома: I = U / R." } });
   });
   await page.goto("/create");
@@ -64,6 +66,11 @@ test("photos are shrunk, read by AI and appended to the material", async ({ page
   const chooser = page.waitForEvent("filechooser");
   await page.getByRole("button", { name: "Фото страниц" }).click();
   await (await chooser).setFiles([{ name: "page.png", mimeType: "image/png", buffer: png }]);
+  // Generation waits until the photos are read, or it would ignore them.
+  await page.getByLabel("Тема теста").fill("Закон Ома");
+  await expect(page.getByRole("button", { name: /Сгенерировать/ })).toBeDisabled();
+  await expect.poll(() => uploads.length).toBe(1);
+  finishReading();
   await expect(page.getByText("Текст с фото добавлен. Проверьте, что ИИ прочитал его верно.")).toBeVisible();
   await expect(page.locator(".source-material textarea")).toHaveValue("§ 14. Закон Ома: I = U / R.");
   expect(uploads).toHaveLength(1);
@@ -109,6 +116,15 @@ test("the SOR table is shown, editable and printed for the teacher", async ({ pa
   await page.getByRole("button", { name: "Сохранить" }).click();
   await expect.poll(() => saves.length).toBe(1);
   expect(saves[0].variants["Variant A"].assessment.rows.map(row => row.points)).toEqual([1, 3]);
+
+  // Replacing a question drops its old table row; the teacher can add a fresh one.
+  await page.route(`**/api/tests/${TEST_ID}/regenerate`, route => route.fulfill({ json: { question: { id: "medium-rnew", type: "short_answer", question: "Найдите U при I = 2 А, R = 3 Ом", correct_answer: "6 В", explanation: "", skill_tag: "" } } }));
+  page.once("dialog", dialog => void dialog.accept());
+  await page.locator(".question-editor").nth(1).getByRole("button", { name: "Заменить через ИИ" }).click();
+  await expect(table.getByText("Задания изменились после составления таблицы — проверьте номера строк.")).toBeVisible();
+  await expect(table.getByText("Обучающийся вычисляет силу тока")).toHaveCount(0);
+  await table.getByRole("button", { name: "+ Строка для задания 2" }).click();
+  await expect(table.getByText(/Задания изменились/)).toHaveCount(0);
 
   await page.goto(`/tests/${TEST_ID}/print`);
   const printed = page.locator(".print-rubric");

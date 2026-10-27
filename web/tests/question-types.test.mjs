@@ -84,3 +84,12 @@ test("the ordering shuffle cannot be undone from the public question id", async 
   assert.notDeepEqual(scrambled(items, "q-public-id"), shown, "the order depends on the server secret");
   delete process.env.ORDERING_SEED_SECRET;
 });
+
+test("a solved ordering question does not reveal another test's question with the same id", () => {
+  process.env.ORDERING_SEED_SECRET = "server-only-secret";
+  const a = ["a1", "a2", "a3", "a4"];
+  const b = ["b1", "b2", "b3", "b4"];
+  const permutation = (items) => scrambled(items, "easy-1").map(item => items.indexOf(item));
+  assert.notDeepEqual(permutation(a), permutation(b));
+  delete process.env.ORDERING_SEED_SECRET;
+});

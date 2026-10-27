@@ -153,7 +153,12 @@ export default function TestPage() {
         if (!current) return current;
         const variants = structuredClone(current.variants);
         const at = variants[variant].questions.findIndex(item => item.id === questionId);
-        if (at >= 0) variants[variant].questions[at] = question;
+        if (at >= 0) {
+          variants[variant].questions[at] = question;
+          // The old criterion and descriptor described the old question.
+          const assessment = variants[variant].assessment;
+          if (assessment) assessment.rows = assessment.rows.filter(row => row.task !== at + 1);
+        }
         return { ...current, variants };
       });
       setMessage(p.regenerated);

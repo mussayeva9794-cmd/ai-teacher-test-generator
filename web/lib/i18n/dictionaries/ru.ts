@@ -318,6 +318,8 @@ export const ru = {
     rubricDescriptor: "Дескриптор",
     rubricPoints: "Балл",
     rubricTotal: (points: number) => `Всего баллов: ${points}`,
+    rubricAddRow: (task: number) => `+ Строка для задания ${task}`,
+    rubricRemove: (task: number) => `Удалить строку задания ${task}`,
     rubricStale: "Задания изменились после составления таблицы — проверьте номера строк.",
     rubricMissing: "ИИ не смог составить таблицу для этого варианта. Тест можно использовать, а таблицу — заполнить в печатной версии вручную.",
     correctMany: "Правильные ответы — отметьте все",

@@ -13,13 +13,16 @@ type Props = {
   pages: string; setPages: (value: string) => void;
   url: string; setUrl: (value: string) => void;
   disabled: boolean;
+  // Lets the form hold back generation until the PDF or photos are read.
+  onReadingChange: (reading: boolean) => void;
 };
 
 /** Lesson material for generation: pasted text, a PDF read in the browser, or page photos read by AI. */
-export function SourceMaterial({ text, setText, title, setTitle, pages, setPages, url, setUrl, disabled }: Props) {
+export function SourceMaterial({ text, setText, title, setTitle, pages, setPages, url, setUrl, disabled, onReadingChange }: Props) {
   const t = useT();
   const c = t.create;
-  const [reading, setReading] = useState<"" | "pdf" | "photo">("");
+  const [reading, setReadingState] = useState<"" | "pdf" | "photo">("");
+  const setReading = (value: "" | "pdf" | "photo") => { setReadingState(value); onReadingChange(Boolean(value)); };
   const [note, setNote] = useState("");
   const [error, setError] = useState("");
   const pdfInput = useRef<HTMLInputElement>(null);

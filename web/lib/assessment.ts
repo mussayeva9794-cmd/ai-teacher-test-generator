@@ -54,7 +54,11 @@ export function studentVariant(variant: TestVariant) {
  */
 export function scrambled(items: string[], questionId: string): string[] {
   const secret = process.env.ORDERING_SEED_SECRET || process.env.SUPABASE_SECRET_KEY || "";
-  const seed = createHash("sha256").update(`mugalim-order:${secret}:${questionId}`).digest("hex");
+  // The items themselves (sorted, so not their answer order) are part of the
+  // seed: ids like "easy-1" repeat across tests, and one solved question must
+  // not reveal the permutation of another.
+  const content = JSON.stringify([...items].sort());
+  const seed = createHash("sha256").update(`mugalim-order:${secret}:${questionId}:${content}`).digest("hex");
   return scrambledOrder(items, seed);
 }
 
