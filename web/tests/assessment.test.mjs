@@ -16,8 +16,11 @@ test("student payload never contains answer keys or explanations", () => {
   assert.equal(JSON.stringify(publicVariant).includes("explanation"), false);
   assert.equal(JSON.stringify(publicVariant).includes("source_reference"), false);
   assert.deepEqual(publicVariant.questions[2].pairs, [{ left: "A", right: "" }, { left: "B", right: "" }]);
-  assert.equal(JSON.stringify(publicVariant).includes("Answer A"), false);
-  assert.equal(JSON.stringify(publicVariant).includes("Answer B"), false);
+  // Matching choices are visible, but only as a sorted list detached from the left items.
+  assert.deepEqual(publicVariant.questions[2].match_options, ["Answer A", "Answer B"]);
+  assert.equal(JSON.stringify(publicVariant.questions[2].pairs).includes("Answer"), false);
+  const reversed = studentVariant({ ...variant, questions: [{ ...variant.questions[2], pairs: [{ left: "A", right: "Zebra" }, { left: "B", right: "Apple" }] }] });
+  assert.deepEqual(reversed.questions[0].match_options, ["Apple", "Zebra"]);
 });
 
 test("grading accepts correct answers and rejects wrong ones", () => {
@@ -52,4 +55,11 @@ test("variant validation rejects incomplete choice and matching questions", () =
   assert.equal(isValidVariant(variant), true);
   assert.equal(isValidVariant({ ...variant, questions: [{ ...variant.questions[0], options: ["3"] }] }), false);
   assert.equal(isValidVariant({ ...variant, questions: [{ ...variant.questions[2], pairs: [{ left: "A", right: "Answer A" }] }] }), false);
+});
+
+test("an ordering question the student never answered earns nothing", () => {
+  const ordering = { title: "T", instructions: "", questions: [
+    { id: "o1", type: "ordering", question: "Order", correct_answer: "", items: ["a", "b", "c", "d"], explanation: "", skill_tag: "" },
+  ] };
+  assert.equal(grade(ordering, {}).total_score, 0);
 });

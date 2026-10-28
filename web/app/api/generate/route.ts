@@ -1,12 +1,18 @@
 import type { NextRequest } from "next/server";
 import { actorFromRequest, jsonError } from "@/lib/auth";
-import { generateVariants, GroqGenerationError, type GenerateInput } from "@/lib/groq";
+import { BLOOM_MIXES, generateRubrics, generateVariants, GroqGenerationError, type BloomMix, type GenerateInput } from "@/lib/groq";
 import { userClient } from "@/lib/supabase";
 import { adminClient } from "@/lib/supabase-admin";
+import { QUESTION_TYPES } from "@/lib/question-validation";
+import { quotaErrorResponse, releaseGenerationWindow, reserveGenerationWindow } from "@/lib/generation-quota";
 
 export const maxDuration = 300;
+// The СОР/СОЧ table is skipped when generation already took this long, so the
+// table call plus its fallback cannot push the request past maxDuration.
+const RUBRIC_DEADLINE_MS = 170_000;
 
 export async function POST(request: NextRequest) {
+  const started = Date.now();
   const actor = await actorFromRequest(request);
   if (!actor || actor.role !== "teacher") return jsonError("Teacher sign-in required.", 401);
   // Source details arrive as flat form fields and are folded into `sources` below.
@@ -17,12 +23,14 @@ export async function POST(request: NextRequest) {
   if (!topic || topic.length > 180 || !Number.isInteger(count) || count < 1 || count > 20) {
     return jsonError("Enter a topic and choose 1–20 questions.");
   }
-  if (!body.type || !["multiple_choice", "true_false", "short_answer", "matching"].includes(body.type)) {
+  if (!body.type || !(QUESTION_TYPES as readonly string[]).includes(body.type)) {
     return jsonError("Choose a supported question type.");
   }
   if (!body.language || !["russian", "kazakh", "english"].includes(body.language)) {
     return jsonError("Choose a language.");
   }
+  const bloomMix: BloomMix = typeof body.bloomMix === "string" && Object.hasOwn(BLOOM_MIXES, body.bloomMix) ? body.bloomMix : "balanced";
+  const format = body.format === "sor" || body.format === "soch" ? body.format : "test";
   const sourceText = String(body.sourceText || "").trim().slice(0, 12000);
   const sourceTitle = String(body.sourceTitle || "").trim().slice(0, 180);
   const sourcePages = String(body.sourcePages || "").trim().slice(0, 120);
@@ -38,40 +46,24 @@ export async function POST(request: NextRequest) {
     }
   }
   const db = userClient(actor.accessToken);
-  let reservationWindow: string | null;
-  try {
-    const { data, error } = await db.rpc("consume_web_generation_quota_v2");
-    if (error || (data !== null && typeof data !== "string")) {
-      return jsonError("Generation is temporarily unavailable. Check the database migration.", 503);
-    }
-    reservationWindow = data;
-  } catch {
-    return jsonError("Generation is temporarily unavailable. Check the database migration.", 503);
-  }
-  if (reservationWindow === null) return jsonError("Generation limit reached: 5 requests per hour. Try later.", 429);
-  const releaseQuota = async () => {
-    try {
-      const { error } = await adminClient().rpc("release_web_generation_quota_v2", {
-        p_owner_id: actor.id, p_window_start: reservationWindow,
-      });
-      if (error) console.error("Generation quota release failed", { code: error.code });
-    } catch {
-      console.error("Generation quota release failed", { code: "server_configuration_error" });
-    }
+  const reservation = await reserveGenerationWindow(db);
+  if (reservation.status !== "allowed") return quotaErrorResponse(reservation);
+  const { window } = reservation;
+  const releaseQuota = () => releaseGenerationWindow(adminClient, actor.id, window);
+  const input: GenerateInput = {
+    topic, count, type: body.type, language: body.language,
+    gradeLevel: String(body.gradeLevel || "").slice(0, 80),
+    objective: String(body.objective || "").slice(0, 1000),
+    sourceText, bloomMix, format,
+    sources: sourceText ? [{
+      label: sourceTitle || "Материал, добавленный преподавателем",
+      ...(sourcePages ? { pages: sourcePages } : {}),
+      ...(sourceUrl ? { url: sourceUrl } : {}),
+    }] : [],
   };
   let variants;
   try {
-    variants = await generateVariants({
-      topic, count, type: body.type, language: body.language,
-      gradeLevel: String(body.gradeLevel || "").slice(0, 80),
-      objective: String(body.objective || "").slice(0, 1000),
-      sourceText,
-      sources: sourceText ? [{
-        label: sourceTitle || "Материал, добавленный преподавателем",
-        ...(sourcePages ? { pages: sourcePages } : {}),
-        ...(sourceUrl ? { url: sourceUrl } : {}),
-      }] : [],
-    });
+    variants = await generateVariants(input);
   } catch (error) {
     const reason = error instanceof GroqGenerationError ? error.reason : "upstream";
     console.error("Generation failed", {
@@ -88,6 +80,16 @@ export async function POST(request: NextRequest) {
     } as const;
     await releaseQuota();
     return jsonError(messages[reason], reason === "rate_limit" ? 429 : 503);
+  }
+
+  if (format !== "test" && Date.now() - started < RUBRIC_DEADLINE_MS) {
+    // The criteria table is an extra; a failure here still returns the test.
+    try {
+      const rubrics = await generateRubrics(input, variants);
+      for (const [name, assessment] of Object.entries(rubrics)) variants[name] = { ...variants[name], assessment };
+    } catch (error) {
+      console.error("Rubric generation failed", { reason: error instanceof GroqGenerationError ? error.reason : "upstream" });
+    }
   }
 
   const { data, error } = await db.from("web_tests").insert({

@@ -1,61 +1,12 @@
 import { createHash } from "node:crypto";
 import type { Question, ShareSettings, TestVariant } from "./types";
+import { isValidVariant } from "./question-validation";
+import { answerText, correctText } from "./answer-format";
+import { needsTeacher, questionScore, shownScore } from "./scoring";
+import { scrambledOrder } from "./scramble";
+import { questionPoints, rubricIsStale } from "./rubric";
 
-export function isValidVariant(value: unknown): value is TestVariant {
-  if (!value || typeof value !== "object") return false;
-  const variant = value as Partial<TestVariant>;
-  if (typeof variant.title !== "string" || !variant.title.trim() || !Array.isArray(variant.questions) ||
-    variant.questions.length === 0 || variant.questions.length > 50) return false;
-
-  if (variant.sources !== undefined && (!Array.isArray(variant.sources) || variant.sources.length > 8 ||
-    !variant.sources.every((source) => {
-      if (!source || typeof source !== "object") return false;
-      const item = source as { label?: unknown; pages?: unknown; url?: unknown };
-      if (typeof item.label !== "string" || !item.label.trim() || item.label.length > 180) return false;
-      if (item.pages !== undefined && (typeof item.pages !== "string" || item.pages.length > 120)) return false;
-      if (item.url !== undefined) {
-        if (typeof item.url !== "string") return false;
-        try { if (new URL(item.url).protocol !== "https:") return false; } catch { return false; }
-      }
-      return true;
-    }))) return false;
-
-  return variant.questions.every((value) => {
-    if (!value || typeof value !== "object") return false;
-    const question = value as Partial<Question>;
-    if (typeof question.id !== "string" || !question.id.trim() || typeof question.question !== "string" ||
-      !question.question.trim() || typeof question.correct_answer !== "string" ||
-      !["multiple_choice", "true_false", "short_answer", "matching"].includes(question.type || "") ||
-      (question.source_reference !== undefined && (typeof question.source_reference !== "string" || question.source_reference.length > 320))) return false;
-
-    if (question.type === "multiple_choice" || question.type === "true_false") {
-      if (!Array.isArray(question.options)) return false;
-      // Legacy teacher-authored tests may have two or three choices. Reject a
-      // one-choice question, but do not invalidate an already published test.
-      const requiredCount = 2;
-      const options = question.options;
-      if (options.length < requiredCount || !options.every((option) => typeof option === "string" && Boolean(option.trim()))) return false;
-      const normalizedOptions = options.map((option) => option.trim().toLocaleLowerCase());
-      return new Set(normalizedOptions).size === options.length && normalizedOptions.includes(question.correct_answer.trim().toLocaleLowerCase());
-    }
-
-    if (question.type === "matching") {
-      if (!Array.isArray(question.pairs) || question.pairs.length < 2) return false;
-      const left = new Set<string>();
-      const right = new Set<string>();
-      return question.pairs.every((pair) => {
-        if (!pair || typeof pair.left !== "string" || typeof pair.right !== "string" || !pair.left.trim() || !pair.right.trim()) return false;
-        const normalizedLeft = pair.left.trim().toLocaleLowerCase();
-        const normalizedRight = pair.right.trim().toLocaleLowerCase();
-        if (left.has(normalizedLeft) || right.has(normalizedRight)) return false;
-        left.add(normalizedLeft); right.add(normalizedRight);
-        return true;
-      });
-    }
-
-    return Boolean(question.correct_answer.trim());
-  });
-}
+export { isValidVariant };
 
 function shuffle<T>(items: T[], seed: string): T[] {
   const result = [...items];
@@ -76,53 +27,66 @@ export function personalizedVariant(variant: TestVariant, token: string, student
     options: question.options ? shuffle(question.options, `${seed}:${question.id}:options`) : undefined,
     pairs: question.pairs ? shuffle(question.pairs, `${seed}:${question.id}:pairs`) : undefined,
   }));
-  return { ...variant, questions };
+  // Table rows name tasks by position, so they follow the questions to their new places.
+  const assessment = variant.assessment && !rubricIsStale(variant) ? {
+    ...variant.assessment,
+    rows: variant.assessment.rows.map((row) => ({
+      ...row, task: questions.findIndex((question) => question.id === variant.questions[row.task - 1].id) + 1,
+    })),
+  } : variant.assessment;
+  return { ...variant, questions, ...(assessment ? { assessment } : {}) };
 }
 
 export function studentVariant(variant: TestVariant) {
   return {
     title: variant.title,
     instructions: variant.instructions,
-    questions: variant.questions.map(({ correct_answer: _answer, explanation: _explanation, source_reference: _sourceReference, ...question }) => ({
+    questions: variant.questions.map(({ correct_answer: _answer, correct_answers: _answers, explanation: _explanation, source_reference: _sourceReference, ...question }) => ({
       ...question,
+      // Ordering items go out shuffled; their stored order is the answer.
+      items: question.items ? scrambled(question.items, question.id) : undefined,
       // Matching rows are rendered from the left side only; never send the answer mapping to students.
       pairs: question.pairs?.map(({ left }) => ({ left, right: "" })),
+      // The right-hand choices go out sorted on their own, so their order says
+      // nothing about which left item each one belongs to.
+      match_options: question.pairs ? question.pairs.map(({ right }) => right).sort((a, b) => a.localeCompare(b)) : undefined,
     })),
   };
 }
 
-function normalized(value: unknown): string {
-  return String(value ?? "").trim().toLocaleLowerCase().replace(/\s+/g, " ");
-}
-
-function questionScore(question: Question, answer: unknown): number {
-  if (question.type === "matching") {
-    if (!answer || typeof answer !== "object" || !question.pairs?.length) return 0;
-    const given = answer as Record<string, string>;
-    return question.pairs.filter((pair) => normalized(given[pair.left]) === normalized(pair.right)).length / question.pairs.length;
-  }
-  if (question.type === "short_answer") {
-    const expected = normalized(question.correct_answer);
-    const student = normalized(answer);
-    return student && expected && student === expected ? 1 : 0;
-  }
-  return normalized(answer) === normalized(question.correct_answer) ? 1 : 0;
+/**
+ * The starting order students get for an ordering question: fixed per
+ * question and never the answer. The seed mixes in a server-only secret,
+ * because the question id is sent to the browser and an id-only seed would
+ * let a student undo the shuffle and read off the correct order.
+ */
+export function scrambled(items: string[], questionId: string): string[] {
+  const secret = process.env.ORDERING_SEED_SECRET || process.env.SUPABASE_SECRET_KEY || "";
+  // The items themselves (sorted, so not their answer order) are part of the
+  // seed: ids like "easy-1" repeat across tests, and one solved question must
+  // not reveal the permutation of another.
+  const content = JSON.stringify([...items].sort());
+  const seed = createHash("sha256").update(`mugalim-order:${secret}:${questionId}:${content}`).digest("hex");
+  return scrambledOrder(items, seed);
 }
 
 export function grade(variant: TestVariant, answers: Record<string, unknown>) {
-  const needsReview = (question: Question) => question.type === "short_answer" &&
-    typeof answers[question.id] === "string" && Boolean((answers[question.id] as string).trim()) &&
-    normalized(answers[question.id]) !== normalized(question.correct_answer);
+  const needsReview = (question: Question) => needsTeacher(question, answers[question.id]);
   const requiresManualReview = variant.questions.some(needsReview);
+  // With a СОР/СОЧ table the percentage follows its points, as on paper.
+  const points = questionPoints(variant);
   const perQuestion = variant.questions.map((question) => ({
     id: question.id,
     skill_tag: question.skill_tag,
     score: questionScore(question, answers[question.id]),
     requires_manual_review: needsReview(question),
+    ...(points ? { points: points.get(question.id) ?? 0 } : {}),
   }));
   const total = perQuestion.reduce((sum, result) => sum + result.score, 0);
+  const earned = perQuestion.reduce((sum, result) => sum + result.score * (result.points ?? 1), 0);
+  const possible = perQuestion.reduce((sum, result) => sum + (result.points ?? 1), 0);
   return {
-    percentage: requiresManualReview ? null : Math.round((total / variant.questions.length) * 10000) / 100,
+    percentage: requiresManualReview ? null : Math.round((earned / possible) * 10000) / 100,
     requires_manual_review: requiresManualReview,
     total_score: Math.round(total * 100) / 100,
     total_questions: variant.questions.length,
@@ -145,8 +109,44 @@ export function parseSettings(value: unknown): ShareSettings {
     one_question_at_a_time: Boolean(source.one_question_at_a_time) || strict,
     randomize: source.randomize !== false,
     reveal_score: source.reveal_score === true,
+    reveal_answers: source.reveal_answers === true,
     strict_mode: strict,
     leave_limit: source.leave_limit === null ? null : Number.isFinite(leaveLimit) ? Math.max(0, Math.min(5, leaveLimit)) : 2,
+    // Links created before this setting existed keep their original behaviour.
+    require_fullscreen: strict && source.require_fullscreen === true,
     question_seconds: Number.isFinite(questionSeconds) && questionSeconds > 0 ? Math.max(15, Math.min(600, questionSeconds)) : 0,
   };
+}
+
+export type ReviewItem = {
+  id: string;
+  question: string;
+  given: string;
+  correct: string;
+  explanation: string;
+  // null when only the teacher can judge the answer.
+  score: number | null;
+  checked: boolean;
+};
+
+/** The after-submission review a teacher can allow; only built for submitted attempts. */
+export function answerReview(variant: TestVariant, answers: Record<string, unknown>, result: unknown): ReviewItem[] {
+  const perQuestion = new Map<string, { score?: number | null; requires_manual_review?: boolean }>();
+  const rows = result && typeof result === "object" ? (result as { per_question?: unknown }).per_question : null;
+  if (Array.isArray(rows)) for (const row of rows) if (row && typeof row.id === "string") perQuestion.set(row.id, row);
+  const reviewed = Boolean(result && typeof result === "object" && (result as { manually_reviewed_by?: unknown }).manually_reviewed_by);
+  return variant.questions.map((question) => {
+    const answer = answers?.[question.id];
+    const score = shownScore(question, answer, perQuestion.get(question.id));
+    return {
+      id: question.id,
+      question: question.question,
+      given: answerText(question, answer),
+      correct: correctText(question),
+      explanation: question.explanation || "",
+      score,
+      // The teacher already set the total by hand; this answer was part of it.
+      checked: score === null && reviewed,
+    };
+  });
 }

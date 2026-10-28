@@ -58,7 +58,11 @@ test("post-login destination rejects protocol-relative and backslash-based exter
 test("a resubmitted share link only exposes a grade when the teacher enabled score reveal", () => {
   const shareRoute = readFileSync(fileURLToPath(new URL("../app/api/share/[token]/route.ts", import.meta.url)), "utf8");
   const studentPage = readFileSync(fileURLToPath(new URL("../app/s/[token]/page.tsx", import.meta.url)), "utf8");
-  assert.match(shareRoute, /select\("id,percentage"\)/);
+  assert.match(shareRoute, /select\("id,link_id,percentage,answers,result"\)/);
+  // Answers come back only when the teacher allowed the review.
+  assert.match(shareRoute, /\.\.\.\(settings\.reveal_answers && prior\.link_id === link\.id \? \{\s*review: answerReview\(/);
+  const submitRoute = readFileSync(fileURLToPath(new URL("../app/api/share/[token]/submit/route.ts", import.meta.url)), "utf8");
+  assert.match(submitRoute, /settings\.reveal_answers && attempt && attempt\.link_id === link\.id/);
   assert.match(shareRoute, /percentage:\s*settings\.reveal_score\s*\?\s*prior\.percentage\s*:\s*null/);
   assert.match(studentPage, /setPercentage\(result\.percentage \?\? null\)/);
 });
@@ -251,7 +255,7 @@ test("generation failures release reserved quota and health checks require the c
   assert.doesNotMatch(releaseFunction, /attempt_count = attempt_count - 1[\s\S]*delete from public\.web_generation_quota/i);
   assert.match(migration, /revoke all on function public\.release_web_generation_quota\(uuid\) from public, anon, authenticated, service_role/i);
   assert.match(migration, /grant execute on function public\.release_web_generation_quota\(uuid\) to service_role/i);
-  assert.match(generateRoute, /adminClient\(\)\.rpc\("release_web_generation_quota_v2",\s*\{\s*p_owner_id: actor\.id, p_window_start: reservationWindow/);
+  assert.match(generateRoute, /releaseGenerationWindow\(adminClient, actor\.id, window\)/);
   assert.match(readFileSync(fileURLToPath(new URL("../lib/supabase-admin.ts", import.meta.url)), "utf8"), /^import "server-only";/);
   assert.equal((generateRoute.match(/await releaseQuota\(\)/g) || []).length, 2);
   assert.match(healthWorkflow, /\.groq_model_available == true/);

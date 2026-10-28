@@ -64,3 +64,11 @@ test("a rejected API key does not silently switch models", async () => {
     assert.deepEqual(models, ["openai/gpt-oss-120b"]);
   });
 });
+
+test("an AI grading reply that skips answers is a failed call, so quota is refunded", async () => {
+  const { suggestGrades } = await import("../lib/groq.ts");
+  const items = [{ key: "a:q1", question: "Q?", modelAnswer: "A", studentAnswer: "A" }];
+  await withFetch(() => Response.json({ choices: [{ message: { content: JSON.stringify({ grades: [] }) } }] }), async () => {
+    await assert.rejects(() => suggestGrades(items, "russian"), (error) => error.reason === "invalid_response");
+  });
+});

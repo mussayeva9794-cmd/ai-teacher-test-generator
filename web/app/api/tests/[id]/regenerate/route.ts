@@ -1,0 +1,84 @@
+import type { NextRequest } from "next/server";
+import { actorFromRequest, jsonError } from "@/lib/auth";
+import { generateQuestion, GroqGenerationError, groqErrorResponse, type GenerateInput } from "@/lib/groq";
+import { quotaErrorResponse, releaseGenerationWindow, reserveGenerationWindow } from "@/lib/generation-quota";
+import { userClient } from "@/lib/supabase";
+import { adminClient } from "@/lib/supabase-admin";
+import { QUESTION_TYPES } from "@/lib/question-validation";
+import type { QuestionType, TestRow } from "@/lib/types";
+
+// Same budget as full generation: one question can still go through retries and the fallback model.
+export const maxDuration = 300;
+
+// Variants A–C are written at fixed difficulties. The mixed variant D takes
+// question N from easy, medium and hard in turn (see generateVariants), and a
+// replacement keeps the difficulty in its id prefix.
+const VARIANT_DIFFICULTY: Record<string, string> = { "Variant A": "easy", "Variant B": "medium", "Variant C": "hard" };
+const DIFFICULTIES = ["easy", "medium", "hard"];
+
+function questionDifficulty(variantName: string, questionId: string): string {
+  if (VARIANT_DIFFICULTY[variantName]) return VARIANT_DIFFICULTY[variantName];
+  const mixed = /^mixed-(\d+)$/.exec(questionId);
+  if (mixed) return DIFFICULTIES[(Number(mixed[1]) - 1) % 3];
+  const prefix = questionId.split("-")[0];
+  return DIFFICULTIES.includes(prefix) ? prefix : "medium";
+}
+const LANGUAGES = ["russian", "kazakh", "english"] as const;
+
+/**
+ * Write one replacement question. Nothing is saved here: the teacher sees the
+ * new question in the editor and keeps it by saving the test.
+ */
+export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const actor = await actorFromRequest(request);
+  if (!actor || actor.role !== "teacher") return jsonError("Teacher sign-in required.", 401);
+  const { id } = await params;
+  let body: { variant_name?: unknown; question_id?: unknown; question?: unknown; type?: unknown; skill_tag?: unknown };
+  try { body = await request.json(); } catch { return jsonError("Invalid request body."); }
+  if (!body || typeof body !== "object" || Array.isArray(body) ||
+      typeof body.variant_name !== "string" || typeof body.question_id !== "string") return jsonError("Invalid request body.");
+  const db = userClient(actor.accessToken);
+  const { data, error } = await db.from("web_tests").select("id,topic,language,grade_level,variants")
+    .eq("id", id).eq("owner_id", actor.id).maybeSingle();
+  if (error || !data) return jsonError("Test not found.", 404);
+  const test = data as Pick<TestRow, "id" | "topic" | "language" | "grade_level" | "variants">;
+  // Only the test's own variants; never inherited names such as "__proto__".
+  const variant = test.variants && typeof test.variants === "object" && Object.hasOwn(test.variants, body.variant_name)
+    ? test.variants[body.variant_name] : undefined;
+  if (!variant || !Array.isArray(variant.questions)) return jsonError("Question not found.", 404);
+  // The editor may hold unsaved edits or a question that is not saved yet, so it
+  // sends what it shows; a saved question decides the type and skill itself.
+  const stored = variant.questions.find((question) => question?.id === body.question_id);
+  const type = stored?.type ?? (typeof body.type === "string" && (QUESTION_TYPES as readonly string[]).includes(body.type) ? body.type as QuestionType : null);
+  if (!type) return jsonError("Question not found.", 404);
+  const saved = {
+    id: body.question_id, type,
+    question: stored?.question ?? "",
+    skill_tag: stored?.skill_tag ?? (typeof body.skill_tag === "string" ? body.skill_tag.slice(0, 120) : ""),
+  };
+  const language = (LANGUAGES as readonly string[]).includes(test.language) ? test.language as GenerateInput["language"] : "russian";
+  const difficulty = questionDifficulty(body.variant_name, saved.id);
+  const current = typeof body.question === "string" ? body.question.slice(0, 1000) : saved.question;
+
+  const reservation = await reserveGenerationWindow(db);
+  if (reservation.status !== "allowed") return quotaErrorResponse(reservation);
+  try {
+    const question = await generateQuestion({
+      topic: test.topic, type: saved.type, language,
+      gradeLevel: test.grade_level || "", objective: saved.skill_tag || "",
+      // A test made from the teacher's material keeps its replacements on it.
+      sourceText: typeof variant.source_text === "string" ? variant.source_text : "",
+      avoid: [current, ...variant.questions.filter((item) => item.id !== saved.id).map((item) => item.question)],
+    }, difficulty);
+    const taken = new Set(variant.questions.map((item) => item.id));
+    let newId = "";
+    do newId = `${difficulty}-r${crypto.randomUUID().slice(0, 8)}`; while (taken.has(newId));
+    return Response.json({ question: { ...question, id: newId, skill_tag: saved.skill_tag || question.skill_tag } });
+  } catch (cause) {
+    await releaseGenerationWindow(adminClient, actor.id, reservation.window);
+    const reason = cause instanceof GroqGenerationError ? cause.reason : "upstream";
+    console.error("Question regeneration failed", { reason });
+    if (reason === "invalid_response") return jsonError("AI returned an incomplete test. Retry or add more source material.", 503);
+    return groqErrorResponse(cause);
+  }
+}

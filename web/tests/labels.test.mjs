@@ -39,7 +39,8 @@ test("unsaved question edits are protected", () => {
   assert.match(teacherPage, /if \(!dirtyRef\.current\) \{ setTest\(testResult\.test\); savedSnapshot\.current = snapshot\(testResult\.test\); \}/);
   assert.match(teacherPage, /addEventListener\("beforeunload", warn\)/);
   assert.match(teacherPage, /<TeacherHeader current="tests" canLeave=\{canLeave\} \/>/);
-  assert.match(teacherPage, /savedSnapshot\.current = snapshot\(test\);\s*setTest\(\{ \.\.\.test, status/);
+  // Only the state that was sent is marked saved; newer edits keep the editor dirty.
+  assert.match(teacherPage, /savedSnapshot\.current = snapshot\(test\);\s*setTest\(current => current \? \{ \.\.\.current, status: status \|\| current\.status \} : current\)/);
   assert.doesNotMatch(teacherPage, /Vercel/);
 });
 

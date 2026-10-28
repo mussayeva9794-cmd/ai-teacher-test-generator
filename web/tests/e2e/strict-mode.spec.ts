@@ -36,7 +36,7 @@ async function openStrictTest(page: Page, settings: Settings, initial: InitialPr
     }),
   ]);
   await page.route(`${supabaseUrl}/**`, route => route.fulfill({ json: user }));
-  await page.route(`**/api/share/${TOKEN}`, route => route.fulfill({ json: {
+  await page.route(url => url.pathname === `/api/share/${TOKEN}`, route => route.fulfill({ json: {
     submitted: false, title: "Контрольная", topic: "Повторение", variant_name: "Variant A",
     variant: { instructions: "Отвечайте сами.", questions: initial.finished ? [] : [questions[currentIndex]] },
     settings: { one_question_at_a_time: true, reveal_score: false, strict_mode: true, ...settings },
@@ -166,7 +166,7 @@ test("the student header fits a 360px phone in Kazakh", async ({ page, context }
     JSON.stringify({ access_token: "a", refresh_token: "r", token_type: "bearer", expires_in: 3600, expires_at: Math.floor(Date.now() / 1000) + 3600, user }),
   ]);
   await page.route(`${supabaseUrl}/**`, route => route.fulfill({ json: user }));
-  await page.route(`**/api/share/${TOKEN}`, route => route.fulfill({ json: {
+  await page.route(url => url.pathname === `/api/share/${TOKEN}`, route => route.fulfill({ json: {
     submitted: false, title: "Контрольная", topic: "Повторение", variant_name: "Variant A",
     variant: { instructions: "", questions }, settings: { one_question_at_a_time: true, reveal_score: false, strict_mode: false },
     answers: {}, closes_at: null, saved_at: new Date().toISOString(), expired: false, server_now: new Date().toISOString(),

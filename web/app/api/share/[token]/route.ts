@@ -1,6 +1,6 @@
 import type { NextRequest } from "next/server";
 import { actorFromRequest, jsonError } from "@/lib/auth";
-import { personalizedVariant, studentVariant } from "@/lib/assessment";
+import { answerReview, personalizedVariant, studentVariant } from "@/lib/assessment";
 import { attemptWindowExpired } from "@/lib/attempt-window";
 import { leaveLimitReached, loadIntegrity } from "@/lib/integrity-server";
 import { shareContext } from "@/lib/share";
@@ -12,17 +12,35 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   const context = await shareContext(token, actor);
   if ("error" in context && context.error) return jsonError(context.error, context.status);
   const { admin, test, link, settings, variant } = context;
-  const { data: prior, error: priorError } = await admin.from("web_attempts").select("id,percentage")
+  const { data: prior, error: priorError } = await admin.from("web_attempts").select("id,link_id,percentage,answers,result")
     .eq("test_id", test.id).eq("student_id", actor.id).maybeSingle();
   if (priorError) return jsonError("Could not check your submission status.", 503);
   if (prior) return Response.json({
     submitted: true,
     title: test.title,
     percentage: settings.reveal_score ? prior.percentage : null,
+    // Only for an attempt made through this very link: another link of the same
+    // test may hold a different variant whose answers this student never saw.
+    ...(settings.reveal_answers && prior.link_id === link.id ? {
+      review: answerReview(personalizedVariant(variant, token, actor.id, settings.randomize), (prior.answers || {}) as Record<string, unknown>, prior.result),
+    } : {}),
   });
   let { data: draft, error: loadError } = await admin.from("web_drafts")
     .select("answers,started_at,updated_at").eq("link_id", link.id).eq("student_id", actor.id).maybeSingle();
   if (loadError) return jsonError("Could not load your draft.", 503);
+  // A browser that can go full screen asks first, so the attempt clock and the
+  // first question's clock start only once the student is in full screen.
+  if (!draft && settings.strict_mode && settings.require_fullscreen &&
+      request.nextUrl.searchParams.get("start") === "after_fullscreen") {
+    // A link past its deadline says so at once instead of asking for full screen first.
+    if (settings.deadline_at && Date.parse(settings.deadline_at) <= Date.now()) {
+      return jsonError("The deadline for this test has passed.", 403);
+    }
+    return Response.json({
+      submitted: false, awaiting_fullscreen: true, title: test.title, topic: test.topic, variant_name: link.variant_name,
+      server_now: new Date().toISOString(),
+    });
+  }
   if (!draft) {
     const { data: startStatus, error: startError } = await admin.rpc("start_web_draft_if_open", {
       p_link_id: link.id,
@@ -93,6 +111,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     settings: {
       one_question_at_a_time: settings.one_question_at_a_time, reveal_score: settings.reveal_score,
       strict_mode: settings.strict_mode, leave_limit: settings.leave_limit, question_seconds: settings.question_seconds,
+      require_fullscreen: settings.require_fullscreen,
     },
     answers: draft.answers || {}, closes_at: closesAt, saved_at: draft.updated_at, expired,
     ...(strictProgress ? { question_count: student.questions.length, strict_progress: strictProgress } : {}),
