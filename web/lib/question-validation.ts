@@ -86,6 +86,7 @@ export function isValidVariant(value: unknown): value is TestVariant {
   if (typeof variant.title !== "string" || !variant.title.trim() || !Array.isArray(variant.questions) ||
     variant.questions.length === 0 || variant.questions.length > 50) return false;
 
+  if (variant.source_text !== undefined && (typeof variant.source_text !== "string" || variant.source_text.length > 12000)) return false;
   if (variant.sources !== undefined && (!Array.isArray(variant.sources) || variant.sources.length > 8 ||
     !variant.sources.every((source) => {
       if (!source || typeof source !== "object") return false;

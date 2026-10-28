@@ -66,6 +66,8 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     const question = await generateQuestion({
       topic: test.topic, type: saved.type, language,
       gradeLevel: test.grade_level || "", objective: saved.skill_tag || "",
+      // A test made from the teacher's material keeps its replacements on it.
+      sourceText: typeof variant.source_text === "string" ? variant.source_text : "",
       avoid: [current, ...variant.questions.filter((item) => item.id !== saved.id).map((item) => item.question)],
     }, difficulty);
     const taken = new Set(variant.questions.map((item) => item.id));

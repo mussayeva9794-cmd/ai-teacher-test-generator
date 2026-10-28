@@ -291,6 +291,7 @@ Rewrite any question that fails a check.`;
       ? raw.questions.slice(0, input.count).map((question, index) => toQuestion(question, input, difficulty, index))
       : [],
     sources: input.sources,
+    ...(input.sourceText ? { source_text: input.sourceText.slice(0, 12000) } : {}),
   };
   if (!isValidVariant(variant) || variant.questions.length !== input.count || variant.questions.some((q) => !q.question)) {
     throw new GroqGenerationError("invalid_response", "AI returned an incomplete test.");
@@ -347,6 +348,7 @@ export async function generateVariants(input: GenerateInput): Promise<Record<str
       id: `mixed-${index + 1}`,
     })),
     sources: input.sources,
+    ...(input.sourceText ? { source_text: input.sourceText.slice(0, 12000) } : {}),
   };
   return { "Variant A": easy, "Variant B": medium, "Variant C": hard, "Variant D": mixed };
 }

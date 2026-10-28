@@ -4,6 +4,7 @@ import { isValidVariant } from "./question-validation";
 import { answerText, correctText } from "./answer-format";
 import { needsTeacher, questionScore, shownScore } from "./scoring";
 import { scrambledOrder } from "./scramble";
+import { questionPoints, rubricIsStale } from "./rubric";
 
 export { isValidVariant };
 
@@ -26,7 +27,14 @@ export function personalizedVariant(variant: TestVariant, token: string, student
     options: question.options ? shuffle(question.options, `${seed}:${question.id}:options`) : undefined,
     pairs: question.pairs ? shuffle(question.pairs, `${seed}:${question.id}:pairs`) : undefined,
   }));
-  return { ...variant, questions };
+  // Table rows name tasks by position, so they follow the questions to their new places.
+  const assessment = variant.assessment && !rubricIsStale(variant) ? {
+    ...variant.assessment,
+    rows: variant.assessment.rows.map((row) => ({
+      ...row, task: questions.findIndex((question) => question.id === variant.questions[row.task - 1].id) + 1,
+    })),
+  } : variant.assessment;
+  return { ...variant, questions, ...(assessment ? { assessment } : {}) };
 }
 
 export function studentVariant(variant: TestVariant) {
@@ -65,15 +73,20 @@ export function scrambled(items: string[], questionId: string): string[] {
 export function grade(variant: TestVariant, answers: Record<string, unknown>) {
   const needsReview = (question: Question) => needsTeacher(question, answers[question.id]);
   const requiresManualReview = variant.questions.some(needsReview);
+  // With a СОР/СОЧ table the percentage follows its points, as on paper.
+  const points = questionPoints(variant);
   const perQuestion = variant.questions.map((question) => ({
     id: question.id,
     skill_tag: question.skill_tag,
     score: questionScore(question, answers[question.id]),
     requires_manual_review: needsReview(question),
+    ...(points ? { points: points.get(question.id) ?? 0 } : {}),
   }));
   const total = perQuestion.reduce((sum, result) => sum + result.score, 0);
+  const earned = perQuestion.reduce((sum, result) => sum + result.score * (result.points ?? 1), 0);
+  const possible = perQuestion.reduce((sum, result) => sum + (result.points ?? 1), 0);
   return {
-    percentage: requiresManualReview ? null : Math.round((total / variant.questions.length) * 10000) / 100,
+    percentage: requiresManualReview ? null : Math.round((earned / possible) * 10000) / 100,
     requires_manual_review: requiresManualReview,
     total_score: Math.round(total * 100) / 100,
     total_questions: variant.questions.length,

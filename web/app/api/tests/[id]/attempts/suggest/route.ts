@@ -17,7 +17,7 @@ const MAX_ITEMS = 80;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const LANGUAGES = ["russian", "kazakh", "english"] as const;
 
-type PerQuestion = { id: string; score: number | null; requires_manual_review?: boolean };
+type PerQuestion = { id: string; score: number | null; requires_manual_review?: boolean; points?: number };
 type AttemptRow = { id: string; link_id: string; variant_name: string; answers: Record<string, unknown> | null; result: { per_question?: PerQuestion[] } | null };
 
 /**
@@ -99,16 +99,21 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     if (!rows.length) return [];
     const questions: { id: string; score: number; comment: string }[] = [];
     let total = 0;
+    let possible = 0;
     for (const row of rows) {
+      // Rows graded against a СОР/СОЧ table carry their points.
+      const weight = typeof row?.points === "number" ? row.points : 1;
+      possible += weight;
       if (row?.requires_manual_review) {
         const grade = byKey.get(`${attempt.id}:${row.id}`);
         // Without a suggestion for every open answer there is no total to suggest.
         if (!grade) return [];
         questions.push({ id: row.id, score: grade.score, comment: grade.comment });
-        total += grade.score;
-      } else total += typeof row?.score === "number" ? row.score : 0;
+        total += grade.score * weight;
+      } else total += (typeof row?.score === "number" ? row.score : 0) * weight;
     }
-    return [{ attempt_id: attempt.id, questions, percentage: Math.round(total / rows.length * 10000) / 100 }];
+    if (!possible) return [];
+    return [{ attempt_id: attempt.id, questions, percentage: Math.round(total / possible * 10000) / 100 }];
   });
   return Response.json({ suggestions });
 }

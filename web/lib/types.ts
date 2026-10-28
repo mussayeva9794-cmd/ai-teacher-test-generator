@@ -42,6 +42,8 @@ export type TestVariant = {
   questions: Question[];
   // Stored in the variant JSON so existing database rows remain compatible.
   sources?: TestSource[];
+  // The teacher's material, kept so a replaced question stays on it. Never sent to students.
+  source_text?: string;
   assessment?: Assessment;
 };
 
