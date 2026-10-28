@@ -40,3 +40,8 @@ test("photo recognition is teacher-only, size-limited, quota-bound and refunds o
   assert.match(route, /reserveGenerationWindow\(db\)/);
   assert.equal((route.match(/releaseGenerationWindow\(adminClient, actor\.id, reservation\.window\)/g) || []).length, 2);
 });
+
+test("deleting a question removes its rubric row and renumbers the later ones", () => {
+  const page = read("../app/tests/[id]/page.tsx");
+  assert.match(page, /v\.questions\.splice\(index, 1\);[^}]*row\.task !== index \+ 1[^}]*row\.task - 1/);
+});

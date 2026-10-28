@@ -80,3 +80,9 @@ test("a manual review keeps the auto-graded score that analytics shows", () => {
   // auto_score wins over rescoring with today's (possibly edited) key.
   assert.deepEqual(analyzeVariant("Variant A", [reviewed], questions).rows[0].cells, [1]);
 });
+
+test("the class total follows the stored percentage a teacher set by hand", () => {
+  const reviewed = { ...attempt("a1", "Aigerim", { q1: "4", q2: "Astana city" }, [["q1", null], ["q2", null, true]]), percentage: 100 };
+  const [row] = analyzeVariant("Variant A", [reviewed], questions).rows;
+  assert.equal(row.total, 1);
+});

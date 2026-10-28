@@ -408,6 +408,9 @@ Items (JSON): ${JSON.stringify(items.map((item) => ({
     seen.add(key);
     grades.push({ key, score: score as GradeSuggestion["score"], comment: String(grade.comment || "").slice(0, 300) });
   }
+  // A reply that skips some answers is a failed call: the route refunds the
+  // quota and the teacher can retry, instead of seeing "nothing to check".
+  if (grades.length < keys.size) throw new GroqGenerationError("invalid_response", "AI returned grades for only some answers.");
   return grades;
 }
 

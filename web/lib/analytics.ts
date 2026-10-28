@@ -9,6 +9,8 @@ export type AnalyticsAttempt = {
   student_name: string;
   variant_name: string;
   answers: Record<string, unknown>;
+  // The stored overall score (0-100); a teacher's manual review sets it by hand.
+  percentage?: number | null;
   result?: { per_question?: { id: string; score: number | null; auto_score?: number; requires_manual_review?: boolean }[] } | null;
 };
 
@@ -70,7 +72,8 @@ export function analyzeVariant(variant: string, attempts: AnalyticsAttempt[], qu
     const graded = own.filter((cell): cell is number => typeof cell === "number");
     return {
       attemptId: attempt.id, student: attempt.student_name, cells,
-      total: graded.length === own.length && own.length ? graded.reduce((sum, cell) => sum + cell, 0) / own.length : null,
+      total: typeof attempt.percentage === "number" ? attempt.percentage / 100
+        : graded.length === own.length && own.length ? graded.reduce((sum, cell) => sum + cell, 0) / own.length : null,
     };
   });
 

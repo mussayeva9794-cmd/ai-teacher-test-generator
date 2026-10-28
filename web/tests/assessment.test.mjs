@@ -56,3 +56,10 @@ test("variant validation rejects incomplete choice and matching questions", () =
   assert.equal(isValidVariant({ ...variant, questions: [{ ...variant.questions[0], options: ["3"] }] }), false);
   assert.equal(isValidVariant({ ...variant, questions: [{ ...variant.questions[2], pairs: [{ left: "A", right: "Answer A" }] }] }), false);
 });
+
+test("an ordering question the student never answered earns nothing", () => {
+  const ordering = { title: "T", instructions: "", questions: [
+    { id: "o1", type: "ordering", question: "Order", correct_answer: "", items: ["a", "b", "c", "d"], explanation: "", skill_tag: "" },
+  ] };
+  assert.equal(grade(ordering, {}).total_score, 0);
+});
