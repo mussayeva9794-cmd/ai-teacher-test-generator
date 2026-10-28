@@ -67,8 +67,11 @@ test("with a SOR/SOCh table the percentage follows its points, even after shuffl
 
 test("AI score suggestions weigh questions by their table points", () => {
   const route = read("../app/api/tests/[id]/attempts/suggest/route.ts");
-  assert.match(route, /typeof row\?\.points === "number" \? row\.points : 1/);
+  assert.match(route, /typeof row\?\.points === "number" \? row\.points : /);
   assert.match(route, /total \/ possible/);
+  // Pending attempts stored before rows carried points use their own table.
+  assert.match(route, /tablePoints\?\.get\(row\.id\) \?\? 1/);
+  assert.match(route, /const tablePoints = variant \? questionPoints\(variant\) : null/);
 });
 
 test("a test made from the teacher's material keeps it for replacements but never shows it to students", async () => {

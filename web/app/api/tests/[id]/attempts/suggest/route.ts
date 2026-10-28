@@ -4,6 +4,7 @@ import { isValidVariant } from "@/lib/assessment";
 import { answerText } from "@/lib/answer-format";
 import { quotaErrorResponse, releaseGenerationWindow, reserveGenerationWindow } from "@/lib/generation-quota";
 import { GroqGenerationError, groqErrorResponse, suggestGrades, type GenerateInput, type GradeRequest } from "@/lib/groq";
+import { questionPoints } from "@/lib/rubric";
 import { userClient } from "@/lib/supabase";
 import { adminClient } from "@/lib/supabase-admin";
 import type { Question, TestRow, TestVariant } from "@/lib/types";
@@ -98,11 +99,14 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     const rows = attempt.result?.per_question || [];
     if (!rows.length) return [];
     const questions: { id: string; score: number; comment: string }[] = [];
+    // Rows graded against a СОР/СОЧ table carry their points; attempts stored
+    // before rows did take them from the attempt's own table.
+    const variant = variantOf(attempt);
+    const tablePoints = variant ? questionPoints(variant) : null;
     let total = 0;
     let possible = 0;
     for (const row of rows) {
-      // Rows graded against a СОР/СОЧ table carry their points.
-      const weight = typeof row?.points === "number" ? row.points : 1;
+      const weight = typeof row?.points === "number" ? row.points : tablePoints?.get(row.id) ?? 1;
       possible += weight;
       if (row?.requires_manual_review) {
         const grade = byKey.get(`${attempt.id}:${row.id}`);
