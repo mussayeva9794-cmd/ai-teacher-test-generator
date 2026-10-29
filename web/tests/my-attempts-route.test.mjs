@@ -30,11 +30,12 @@ function fakeDb(tables) {
       for (const [name, column, value] of calls) {
         if (name === "eq") rows = rows.filter((row) => row[column] === value);
         if (name === "in") rows = rows.filter((row) => value.includes(row[column]));
+        if (name === "is") rows = rows.filter((row) => (row[column] ?? null) === value);
       }
       return { data: rows, error: null };
     };
     const query = { then: (resolve, reject) => Promise.resolve(finish()).then(resolve, reject) };
-    for (const name of ["select", "eq", "in", "order", "limit"]) query[name] = (...args) => { calls.push([name, ...args]); return query; };
+    for (const name of ["select", "eq", "in", "is", "order", "limit"]) query[name] = (...args) => { calls.push([name, ...args]); return query; };
     return query;
   } };
 }
@@ -42,17 +43,20 @@ function fakeDb(tables) {
 const student = { id: "s1", role: "student", email: "s1@school.kz", emailVerified: true, hasGoogleIdentity: true, googleEmail: "s1@school.kz" };
 const at = (id, link_id, percentage = 90) => ({ id, test_id: "t1", link_id, student_id: "s1", percentage, submitted_at: "2026-10-01T10:00:00Z" });
 const base = {
-  web_attempts: [at("a1", "open"), at("a2", "closedClass"), at("a3", "removed"), at("a4", "listed"), at("a5", "notListed"), { ...at("x", "open"), student_id: "other" }],
+  web_attempts: [at("a1", "open"), at("a2", "closedClass"), at("a3", "removed"), at("a4", "listed"), at("a5", "notListed"), at("a6", "reinvited"), at("a7", "otherEmail"), { ...at("x", "open"), student_id: "other" }],
   web_tests: [{ id: "t1", title: "Дроби", topic: null, status: "published" }],
   web_share_links: [
     { id: "open", token: "T-open", settings: { reveal_score: true }, is_active: true, class_id: "c1" },
     { id: "closedClass", token: "T-closed", settings: {}, is_active: true, class_id: "c2" },
     { id: "removed", token: "T-removed", settings: {}, is_active: true, class_id: "c3" },
+    { id: "reinvited", token: "T-re", settings: {}, is_active: true, class_id: "c4" },
+    { id: "otherEmail", token: "T-other", settings: {}, is_active: true, class_id: "c5" },
     { id: "listed", token: "T-listed", settings: { allowed_students: ["s1@school.kz"] }, is_active: true, class_id: null },
     { id: "notListed", token: "T-not", settings: { allowed_students: ["x@school.kz"] }, is_active: true, class_id: null },
   ],
-  web_classes: [{ id: "c1", is_active: true }, { id: "c2", is_active: false }, { id: "c3", is_active: true }],
-  web_class_members: [{ class_id: "c1", student_id: "s1", email: "s1@school.kz" }, { class_id: "c2", student_id: "s1", email: "s1@school.kz" }],
+  web_classes: [{ id: "c1", is_active: true }, { id: "c2", is_active: false }, { id: "c3", is_active: true }, { id: "c4", is_active: true }, { id: "c5", is_active: true }],
+  web_class_members: [{ class_id: "c1", student_id: "s1", email: "s1@school.kz" }, { class_id: "c2", student_id: "s1", email: "s1@school.kz" },
+    { class_id: "c4", student_id: null, email: "s1@school.kz" }, { class_id: "c5", student_id: "s1", email: "old@school.kz" }],
 };
 const run = async (tables, actor = student) => {
   globalThis.myMocks = { actor, db: fakeDb(tables) };
@@ -62,13 +66,13 @@ const run = async (tables, actor = student) => {
 
 test("only the signed-in student's attempts are listed", async () => {
   const { body } = await run(base);
-  assert.deepEqual(body.attempts.map((row) => row.id), ["a1", "a2", "a3", "a4", "a5"]);
+  assert.deepEqual(body.attempts.map((row) => row.id), ["a1", "a2", "a3", "a4", "a5", "a6", "a7"]);
 });
 
 test("the result link is offered only where the test page would let the student in", async () => {
   const { body } = await run(base);
   assert.deepEqual(Object.fromEntries(body.attempts.map((row) => [row.id, row.href])), {
-    a1: "/s/T-open", a2: null, a3: null, a4: "/s/T-listed", a5: null,
+    a1: "/s/T-open", a2: null, a3: null, a4: "/s/T-listed", a5: null, a6: "/s/T-re", a7: null,
   });
   assert.deepEqual(body.attempts[0].score, { state: "shown", percentage: 90 });
   assert.deepEqual(body.attempts[1].score, { state: "hidden" });
@@ -82,5 +86,5 @@ test("teachers and signed-out visitors get no list", async () => {
 test("a database without the class migration still lists the tests", async () => {
   const { status, body } = await run({ ...base, noClassColumn: true });
   assert.equal(status, 200);
-  assert.equal(body.attempts.length, 5);
+  assert.equal(body.attempts.length, 7);
 });

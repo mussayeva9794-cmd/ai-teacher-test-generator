@@ -66,3 +66,15 @@ test("a student with no submitted tests is told where they will appear", async (
   await page.goto("/my");
   await expect(page.getByText("Пока нет сданных тестов")).toBeVisible();
 });
+
+test("My tests shows an error instead of loading forever when the session cannot be read", async ({ page }) => {
+  await page.addInitScript(() => {
+    const getItem = Storage.prototype.getItem;
+    Storage.prototype.getItem = function (key: string) {
+      if (key.includes("auth-token")) throw new Error("storage unavailable");
+      return getItem.call(this, key);
+    };
+  });
+  await page.goto("/my");
+  await expect(page.locator(".error[role=alert]")).toHaveText("Не удалось загрузить ваши тесты. Повторите попытку.");
+});

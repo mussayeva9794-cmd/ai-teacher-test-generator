@@ -34,14 +34,20 @@ export async function GET(request: NextRequest) {
   const classIds = [...new Set(links.map((link) => link.class_id).filter((id): id is string => Boolean(id)))];
   let openClasses = new Set<string>();
   if (classIds.length && actor.googleEmail) {
-    const [{ data: classes, error: classError }, { data: members, error: memberError }] = await Promise.all([
+    const [{ data: classes, error: classError }, { data: members, error: memberError }, { data: invites, error: inviteError }] = await Promise.all([
       admin.from("web_classes").select("id,is_active").in("id", classIds),
       admin.from("web_class_members").select("class_id,email").in("class_id", classIds).eq("student_id", actor.id),
+      // Removed and added again by email: the test page claims this invite on the next visit.
+      admin.from("web_class_members").select("class_id").in("class_id", classIds).eq("email", actor.googleEmail).is("student_id", null),
     ]);
-    if (classError || memberError) return jsonError("Could not load your tests.", 503);
+    if (classError || memberError || inviteError) return jsonError("Could not load your tests.", 503);
     const active = new Set((classes || []).filter((row) => row.is_active).map((row) => row.id as string));
-    openClasses = new Set((members || []).filter((row) => row.email === actor.googleEmail && active.has(row.class_id))
-      .map((row) => row.class_id as string));
+    // Same rules as shareContext: an own roster row must carry this Google email;
+    // without one, an unclaimed invite for this email lets the student in.
+    const own = new Map((members || []).map((row) => [row.class_id as string, row.email as string]));
+    const invited = new Set((invites || []).map((row) => row.class_id as string));
+    openClasses = new Set(classIds.filter((id) => active.has(id) &&
+      (own.has(id) ? own.get(id) === actor.googleEmail : invited.has(id))));
   }
   const canOpen = (link: MyLinkRow) => link.class_id
     ? actor.hasGoogleIdentity && openClasses.has(link.class_id)
