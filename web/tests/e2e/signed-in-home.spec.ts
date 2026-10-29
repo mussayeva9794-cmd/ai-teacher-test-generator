@@ -46,3 +46,35 @@ test("a student who signs out on the home page gets every sign-in button back", 
   await expect(page.getByRole("navigation", { name: "Основная навигация" }).getByRole("link", { name: "Войти" })).toBeVisible();
   await expect(page.getByRole("link", { name: "У меня есть аккаунт" })).toBeVisible();
 });
+
+test("a student sees the tests they submitted, with the score only where it is shown", async ({ page }) => {
+  await signedIn(page, "student");
+  await page.route("**/api/my/attempts", route => route.fulfill({ json: { attempts: [
+    { id: "a1", title: "Дроби", topic: "Математика", submitted_at: "2026-10-01T10:00:00Z", score: { state: "shown", percentage: 85 }, href: "/s/tok1" },
+    { id: "a2", title: "Проценты", topic: null, submitted_at: "2026-10-02T10:00:00Z", score: { state: "hidden" }, href: null },
+  ] } }));
+  await page.goto("/");
+  await page.getByRole("navigation", { name: "Основная навигация" }).getByRole("link", { name: "Мои тесты" }).click();
+  await expect(page).toHaveURL(/\/my$/);
+  await expect(page.getByRole("link", { name: /85%.*Дроби/s })).toHaveAttribute("href", "/s/tok1");
+  await expect(page.getByText("Результат скрыт учителем")).toBeVisible();
+});
+
+test("a student with no submitted tests is told where they will appear", async ({ page }) => {
+  await signedIn(page, "student");
+  await page.route("**/api/my/attempts", route => route.fulfill({ json: { attempts: [] } }));
+  await page.goto("/my");
+  await expect(page.getByText("Пока нет сданных тестов")).toBeVisible();
+});
+
+test("My tests shows an error instead of loading forever when the session cannot be read", async ({ page }) => {
+  await page.addInitScript(() => {
+    const getItem = Storage.prototype.getItem;
+    Storage.prototype.getItem = function (key: string) {
+      if (key.includes("auth-token")) throw new Error("storage unavailable");
+      return getItem.call(this, key);
+    };
+  });
+  await page.goto("/my");
+  await expect(page.locator(".error[role=alert]")).toHaveText("Не удалось загрузить ваши тесты. Повторите попытку.");
+});

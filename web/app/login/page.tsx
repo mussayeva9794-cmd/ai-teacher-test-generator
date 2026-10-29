@@ -30,7 +30,8 @@ function LoginForm() {
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const requestedNext = search.get("next");
-  const signupNext = safeNext(requestedNext, "/");
+  // Sign-up makes a student account, which starts at "My tests".
+  const signupNext = safeNext(requestedNext, "/my");
 
   async function destination(userId: string, requestedDestination = requestedNext) {
     const { data, error: profileError } = await browserClient().from("web_profiles").select("role").eq("id", userId).single();

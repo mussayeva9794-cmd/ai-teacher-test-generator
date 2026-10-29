@@ -10,7 +10,7 @@ type Who = "signedOut" | "teacher" | "student";
 /**
  * Sign-in buttons on the home page, or a way back in for someone already
  * signed in: the session is kept in the browser, so the home page should not
- * ask a teacher to sign in again.
+ * ask anyone to sign in again. Teachers go to the dashboard, students to My tests.
  */
 export function HomeAuthLinks({ placement }: { placement: "nav" | "hero" }) {
   const t = useT();
@@ -45,7 +45,10 @@ export function HomeAuthLinks({ placement }: { placement: "nav" | "hero" }) {
       : <Link className="btn primary" href="/dashboard">{t.home.openDashboard} <span aria-hidden="true">↗</span></Link>;
   }
   if (who === "student") {
-    return placement === "nav" ? <button className="btn ghost" onClick={() => void signOut()}>{t.nav.signOut}</button> : null;
+    return placement === "nav" ? <>
+      <Link className="btn primary" href="/my">{t.common.myTests}</Link>
+      <button className="btn ghost" onClick={() => void signOut()}>{t.nav.signOut}</button>
+    </> : <Link className="btn primary" href="/my">{t.common.myTests} <span aria-hidden="true">↗</span></Link>;
   }
   return placement === "nav" ? <>
     <Link className="btn ghost" href="/login">{t.common.signIn}</Link>
