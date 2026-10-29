@@ -25,6 +25,8 @@ function LoginForm() {
   const [busy, setBusy] = useState(false);
   const [oauthUserId, setOauthUserId] = useState<string | null>(null);
   const [oauthNext, setOauthNext] = useState<string | null>(null);
+  // An account already signed in on this device: offer it instead of a new sign-in.
+  const [signedIn, setSignedIn] = useState<{ id: string; email: string } | null>(null);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const requestedNext = search.get("next");
@@ -56,11 +58,11 @@ function LoginForm() {
     const { data: { subscription } } = auth.onAuthStateChange((_event, session) => {
       if (callback && session) setOauthUserId(session.user.id);
     });
-    if (callback) {
-      void auth.getSession().then(({ data }) => {
-        if (data.session) setOauthUserId(data.session.user.id);
-      });
-    }
+    void auth.getSession().then(({ data }) => {
+      if (!data.session) return;
+      if (callback) setOauthUserId(data.session.user.id);
+      else setSignedIn({ id: data.session.user.id, email: data.session.user.email || "" });
+    });
     return () => subscription.unsubscribe();
   }, []);
 
@@ -129,6 +131,19 @@ function LoginForm() {
     }
   }
 
+  async function continueSignedIn() {
+    if (!signedIn) return;
+    setBusy(true); setError("");
+    try { router.replace(await destination(signedIn.id)); }
+    catch { setError(l.profileFailed); setBusy(false); }
+  }
+
+  async function useAnotherAccount() {
+    setBusy(true); setError("");
+    await browserClient().auth.signOut({ scope: "local" }).catch(() => undefined);
+    setSignedIn(null); setBusy(false);
+  }
+
   async function requestPasswordReset() {
     setBusy(true); setError(""); setMessage("");
     try {
@@ -145,6 +160,7 @@ function LoginForm() {
   return <div className="wrap"><header className="topbar"><Brand /><LanguageSwitcher /></header>
     <div className="auth-layout"><aside className="auth-art draw-in enter" aria-hidden="true"><SheetsIllustration /><p className="auth-art-caption"><b>{l.artTitle}</b>{l.artText}</p></aside>
     <main className="panel enter" style={{ ["--i" as string]: 1 }}><div className="eyebrow">{l.eyebrow}</div><h2>{mode === "signup" ? l.signupTitle : l.signinTitle}</h2><p className="muted">{mode === "signup" ? l.signupLead : l.signinLead}</p>
+      {signedIn && <div className="notice stack" role="status" style={{ marginBottom: 18 }}><span>{l.alreadySignedIn(signedIn.email)}</span><div className="row"><button type="button" className="btn primary" disabled={busy} onClick={() => void continueSignedIn()}>{l.continueSignedIn}</button><button type="button" className="btn ghost" disabled={busy} onClick={() => void useAnotherAccount()}>{l.useAnotherAccount}</button></div></div>}
       <div className="tabs tabs-slide" style={{ marginBottom: 22 }}><button className={mode === "signin" ? "active" : ""} onClick={() => setMode("signin")}>{l.tabSignin}</button><button className={mode === "signup" ? "active" : ""} onClick={() => setMode("signup")}>{l.tabSignup}</button></div>
       <form className="stack" onSubmit={submit}>
         {mode === "signup" && <label className="field">{l.name}<input required value={name} onChange={e => setName(e.target.value)} autoComplete="name" /></label>}
