@@ -2,6 +2,8 @@ import type { NextRequest } from "next/server";
 import { actorFromRequest, jsonError } from "@/lib/auth";
 import { normalizedClassEmails, normalizedClassName } from "@/lib/classes";
 import { userClient } from "@/lib/supabase";
+import { profileNames } from "@/lib/student-lookup";
+import { studentIdentity } from "@/lib/student-names";
 
 export async function GET(request: NextRequest) {
   const actor = await actorFromRequest(request);
@@ -10,7 +12,17 @@ export async function GET(request: NextRequest) {
     .select("id,name,is_active,created_at,web_class_members(id,email,student_id,created_at)")
     .eq("owner_id", actor.id).order("created_at", { ascending: false });
   if (error) return jsonError("Could not load classes. Apply the school-classes database migration first.", 503);
-  return Response.json({ classes: data || [] });
+  const classes = data || [];
+  // Names of students in this teacher's own rosters; the list still loads without them.
+  const ids = classes.flatMap((row) => row.web_class_members.flatMap((member) => member.student_id ? [member.student_id as string] : []));
+  const names = ids.length ? await profileNames(ids).catch(() => null) : null;
+  return Response.json({ classes: classes.map((row) => ({
+    ...row,
+    web_class_members: row.web_class_members.map((member) => {
+      const shown = studentIdentity(member.student_id ? names?.get(member.student_id) : null, member.email);
+      return { ...member, name: shown.email ? shown.name : null };
+    }),
+  })) });
 }
 
 export async function POST(request: NextRequest) {

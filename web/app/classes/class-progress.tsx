@@ -34,7 +34,7 @@ export function ClassProgress({ classId }: { classId: string }) {
         <table className="heatmap progress-table">
           <thead><tr><th scope="col">{c.progressStudent}</th>{data.columns.map((test, i) => <th scope="col" key={test.id} title={test.title}>{i + 1}</th>)}<th scope="col">{c.progressAverage}</th><th scope="col">{c.progressTrend}</th></tr></thead>
           <tbody>{data.rows.map(row => <tr key={row.email}>
-            <th scope="row">{row.email}</th>
+            <th scope="row">{row.name ? <>{row.name}<span className="student-email muted small">{row.email}</span></> : row.email}</th>
             {row.cells.map((cell, i) => <td key={i} className={cell === null ? "heat-none" : cell === "pending" ? "heat-pending" : `heat-${tone(cell)}`} title={`${data.columns[i].title}: ${cell === null ? c.progressMissed : cell === "pending" ? c.progressPending : `${cell}%`}`}>{typeof cell === "number" ? Math.round(cell) : cell === "pending" ? "…" : <span className="sr-only">{c.progressMissed}</span>}</td>)}
             <td className="heat-total">{row.average === null ? "—" : `${row.average}%`}</td>
             <td className={row.trend === null ? "heat-total" : row.trend > 0 ? "heat-total trend-up" : row.trend < 0 ? "heat-total trend-down" : "heat-total"}>{row.trend === null ? "—" : row.trend > 0 ? `▲ ${row.trend}` : row.trend < 0 ? `▼ ${-row.trend}` : "＝"}</td>

@@ -27,7 +27,7 @@ export function ClassAnalytics({ t, test, attempts }: { t: Dictionary; test: Tes
       <table className="heatmap">
         <thead><tr><th scope="col">{p.heatStudent}</th>{data.questions.map(question => <th scope="col" key={question.id} title={question.text}>{question.number}</th>)}<th scope="col">{p.heatTotal}</th></tr></thead>
         <tbody>
-          {data.rows.map(row => <tr key={row.attemptId}><th scope="row">{row.student}</th>{row.cells.map((cell, i) => <td key={i} className={`heat-${tone(cell)}`} title={p.heatCell(row.student, i + 1, cellText(cell))}><span className="sr-only">{cellText(cell)}</span></td>)}<td className="heat-total">{row.total === null ? "—" : `${pct(row.total)}%`}</td></tr>)}
+          {data.rows.map(row => <tr key={row.attemptId}><th scope="row">{row.student}{row.email && <span className="student-email muted small">{row.email}</span>}</th>{row.cells.map((cell, i) => <td key={i} className={`heat-${tone(cell)}`} title={p.heatCell(row.student, i + 1, cellText(cell))}><span className="sr-only">{cellText(cell)}</span></td>)}<td className="heat-total">{row.total === null ? "—" : `${pct(row.total)}%`}</td></tr>)}
           <tr className="heat-average"><th scope="row">%</th>{data.questions.map(question => <td key={question.id} className={`heat-${averageTone(question.average)}`}>{question.average === null ? "—" : pct(question.average)}</td>)}<td /></tr>
         </tbody>
       </table>

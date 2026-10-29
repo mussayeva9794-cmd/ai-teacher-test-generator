@@ -177,3 +177,8 @@
 .trend-up { color: #1f6b4a !important; } .trend-down { color: var(--wine) !important; }
 .progress-tests { margin: 0; padding-left: 1.4em; columns: 2; }
 @media (max-width: 560px) { .progress-tests { columns: 1; } }
+
+/* Student email under the name in results, analytics and class progress. */
+.student-email { display: block; font-weight: 400; overflow-wrap: anywhere; }
+.result-row > summary .result-name .student-email { padding-left: 14px; }
+.heatmap th .student-email { font-size: .72rem; }

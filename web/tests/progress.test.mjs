@@ -20,9 +20,9 @@ test("tests appear in the order the class took them; untaken tests are left out"
 test("each student gets cells, an average of graded work and a trend from first to last", () => {
   const { rows } = classProgress(members, tests, attempts);
   assert.deepEqual(rows.map(row => row.email), ["a@school.kz", "b@school.kz", "new@school.kz"]);
-  assert.deepEqual(rows[0], { email: "a@school.kz", cells: [40, "pending", 90], average: 65, trend: 50 });
-  assert.deepEqual(rows[1], { email: "b@school.kz", cells: [80, null, 60], average: 70, trend: -20 });
-  assert.deepEqual(rows[2], { email: "new@school.kz", cells: [null, null, null], average: null, trend: null });
+  assert.deepEqual(rows[0], { name: null, email: "a@school.kz", cells: [40, "pending", 90], average: 65, trend: 50 });
+  assert.deepEqual(rows[1], { name: null, email: "b@school.kz", cells: [80, null, 60], average: 70, trend: -20 });
+  assert.deepEqual(rows[2], { name: null, email: "new@school.kz", cells: [null, null, null], average: null, trend: null });
 });
 
 test("students outside the class never show up", () => {

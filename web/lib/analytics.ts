@@ -7,6 +7,7 @@ import { shownScore } from "./scoring";
 export type AnalyticsAttempt = {
   id: string;
   student_name: string;
+  student_email?: string | null;
   variant_name: string;
   answers: Record<string, unknown>;
   // The stored overall score (0-100); a teacher's manual review sets it by hand.
@@ -30,7 +31,7 @@ export type QuestionStats = {
 
 // "absent": the student's version of the variant did not have this question.
 export type HeatCell = number | null | "absent";
-export type HeatRow = { attemptId: string; student: string; total: number | null; cells: HeatCell[] };
+export type HeatRow = { attemptId: string; student: string; email: string | null; total: number | null; cells: HeatCell[] };
 
 export type VariantAnalytics = { variant: string; attempts: number; questions: QuestionStats[]; rows: HeatRow[] };
 
@@ -71,7 +72,7 @@ export function analyzeVariant(variant: string, attempts: AnalyticsAttempt[], qu
     const own = cells.filter((cell) => cell !== "absent");
     const graded = own.filter((cell): cell is number => typeof cell === "number");
     return {
-      attemptId: attempt.id, student: attempt.student_name, cells,
+      attemptId: attempt.id, student: attempt.student_name, email: attempt.student_email ?? null, cells,
       total: typeof attempt.percentage === "number" ? attempt.percentage / 100
         : graded.length === own.length && own.length ? graded.reduce((sum, cell) => sum + cell, 0) / own.length : null,
     };
