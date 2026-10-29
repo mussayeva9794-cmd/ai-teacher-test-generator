@@ -57,8 +57,10 @@ test("apostrophes, list numbers and Excel semicolons are read as the teacher mea
     { email: "d@x.kz", full_name: null },
     { email: "quoted@x.kz", full_name: null },
   ]);
-  // Two students on one line cannot be told apart, so the teacher is asked to split them.
-  assert.equal(parseRoster("Иванов Иван, a@x.kz; Петров Пётр, b@x.kz").invalid.length, 1);
+  // ";" between students still works when each part has its own email.
+  assert.deepEqual(parseRoster("Иванов Иван, a@x.kz; Петров Пётр, b@x.kz\n1;Ким Анна;c@x.kz"), { invalid: [], entries: [
+    { email: "a@x.kz", full_name: "Иванов Иван" }, { email: "b@x.kz", full_name: "Петров Пётр" }, { email: "c@x.kz", full_name: "Ким Анна" },
+  ] });
 });
 
 test("student names are trimmed and must contain letters, without control characters", () => {
