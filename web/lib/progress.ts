@@ -1,11 +1,15 @@
 // A class's results across the teacher's tests: one row per student, one
 // column per test the class has taken, oldest first.
 
+import { studentIdentity } from "./student-names";
+
 export type ProgressAttempt = { test_id: string; student_id: string; percentage: number | null; submitted_at: string };
 export type ProgressTest = { id: string; title: string };
 export type ProgressMember = { email: string; student_id: string | null };
 
 export type ProgressRow = {
+  // The student's profile name once they have signed in; null until then.
+  name: string | null;
   email: string;
   // null: not taken; "pending": waiting for the teacher's check.
   cells: (number | "pending" | null)[];
@@ -14,7 +18,7 @@ export type ProgressRow = {
   trend: number | null;
 };
 
-export function classProgress(members: ProgressMember[], tests: ProgressTest[], attempts: ProgressAttempt[]) {
+export function classProgress(members: ProgressMember[], tests: ProgressTest[], attempts: ProgressAttempt[], names: Map<string, string> = new Map()) {
   const studentIds = new Set(members.flatMap((member) => member.student_id ? [member.student_id] : []));
   const mine = attempts.filter((attempt) => studentIds.has(attempt.student_id));
   // Tests in the order the class first wrote them; untaken tests are left out.
@@ -31,11 +35,12 @@ export function classProgress(members: ProgressMember[], tests: ProgressTest[], 
       return !attempt ? null : attempt.percentage === null ? "pending" as const : attempt.percentage;
     });
     const graded = cells.filter((cell): cell is number => typeof cell === "number");
+    const shown = studentIdentity(member.student_id ? names.get(member.student_id) : null, member.email);
     return {
-      email: member.email, cells,
+      name: shown.email ? shown.name : null, email: member.email, cells,
       average: graded.length ? Math.round(graded.reduce((sum, value) => sum + value, 0) / graded.length) : null,
       trend: graded.length >= 2 ? Math.round(graded[graded.length - 1] - graded[0]) : null,
     };
-  }).sort((a, b) => a.email.localeCompare(b.email));
+  }).sort((a, b) => (a.name ?? a.email).localeCompare(b.name ?? b.email) || a.email.localeCompare(b.email));
   return { columns, rows };
 }

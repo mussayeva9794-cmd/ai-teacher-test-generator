@@ -35,7 +35,7 @@ async function openTeacherTest(page: Page) {
   await page.route("**/api/classes", route => route.fulfill({ json: { classes: [] } }));
   await page.route(`**/api/tests/${TEST_ID}/attempts**`, route => route.fulfill({ json: {
     attempts: [{
-      id: "att-1", link_id: "l1", student_id: "s1", student_name: "Айгерим Нурланова", variant_name: "Variant A", percentage: 100,
+      id: "att-1", link_id: "l1", student_id: "s1", student_name: "Айгерим Нурланова", student_email: "aigerim.n@school.kz", variant_name: "Variant A", percentage: 100,
       answers: { "q-A": "1/2" }, submitted_at: "2026-10-24T09:30:00Z",
       result: { per_question: [{ id: "q-A", skill_tag: "дроби", score: 1 }] },
       integrity: { leaves: 2, pastes: 1, copies: 0, auto_submitted: false, away_seconds: 12, question_seconds: { "q-A": 40 } },
@@ -92,6 +92,7 @@ test("on a phone each result is one row that opens its details", async ({ page }
   await page.getByRole("button", { name: "Результаты" }).click();
   const row = page.locator(".result-row").first();
   await expect(row.locator("summary")).toContainText("Айгерим Нурланова");
+  await expect(row.locator(".student-email")).toHaveText("aigerim.n@school.kz");
   await expect(row.locator("summary")).toContainText("уходов: 2 (12 с)");
   await expect(page.getByText("Ответ: 1/2")).toBeHidden();
   await row.locator("summary").click();

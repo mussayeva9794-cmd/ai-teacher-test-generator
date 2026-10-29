@@ -13,16 +13,22 @@ test("a class card opens the students' progress across tests", async ({ page }) 
   ]);
   await page.route(`${supabaseUrl}/**`, route => route.fulfill({ json: teacher }));
   await page.route("**/api/classes", route => route.fulfill({ json: { classes: [{ id: "c1", name: "7А", is_active: true, created_at: "2026-09-01T00:00:00Z", web_class_members: [
-    { id: "m1", email: "aigerim@school.kz", student_id: "s1", created_at: "2026-09-01T00:00:00Z" },
+    { id: "m1", email: "aigerim@school.kz", student_id: "s1", created_at: "2026-09-01T00:00:00Z", name: "Айгерим Серикова" },
+    { id: "m2", email: "new@school.kz", student_id: null, created_at: "2026-09-01T00:00:00Z", name: null },
   ] }] } }));
   await page.route("**/api/classes/c1/progress", route => route.fulfill({ json: {
     columns: [{ id: "t1", title: "Дроби" }, { id: "t2", title: "Проценты" }],
-    rows: [{ email: "aigerim@school.kz", cells: [45, 80], average: 63, trend: 35 }],
+    rows: [{ name: "Айгерим Серикова", email: "aigerim@school.kz", cells: [45, 80], average: 63, trend: 35 },
+      { name: null, email: "new@school.kz", cells: [null, null], average: null, trend: null }],
   } }));
   await page.goto("/classes");
+  // The roster shows a signed-in student's name with the email beneath it.
+  await expect(page.getByText("Айгерим Серикова")).toBeVisible();
+  await expect(page.getByText("aigerim@school.kz")).toBeVisible();
   await page.getByRole("button", { name: "Успеваемость" }).click();
   const table = page.locator(".progress-table");
-  await expect(table.getByRole("rowheader", { name: "aigerim@school.kz" })).toBeVisible();
+  await expect(table.getByRole("rowheader", { name: /Айгерим Серикова\s*aigerim@school\.kz/ })).toBeVisible();
+  await expect(table.getByRole("rowheader", { name: "new@school.kz" })).toBeVisible();
   await expect(table.locator("td.heat-wrong")).toHaveText("45");
   await expect(table.getByText("▲ 35")).toBeVisible();
   await expect(page.locator(".progress-tests li")).toHaveText(["Дроби", "Проценты"]);

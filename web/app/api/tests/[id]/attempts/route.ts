@@ -2,6 +2,7 @@ import type { NextRequest } from "next/server";
 import { actorFromRequest, jsonError } from "@/lib/auth";
 import { userClient } from "@/lib/supabase";
 import { adminClient } from "@/lib/supabase-admin";
+import { studentIdentities } from "@/lib/student-lookup";
 import { spreadsheetSafeText } from "@/lib/csv-export";
 
 type IntegrityRow = {
@@ -54,14 +55,8 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     }
     attempts = allRows;
   }
-  const ids = [...new Set((attempts || []).map((row) => row.student_id))];
-  const names = new Map<string, string>();
-  for (let offset = 0; offset < ids.length; offset += 100) {
-    const { data: profiles, error: profileError } = await adminClient().from("web_profiles")
-      .select("id,display_name").in("id", ids.slice(offset, offset + 100));
-    if (profileError) return jsonError("Could not load student display names.", 503);
-    for (const profile of profiles || []) names.set(profile.id, profile.display_name);
-  }
+  const identities = await studentIdentities((attempts || []).map((row) => row.student_id));
+  if (!identities) return jsonError("Could not load student display names.", 503);
   // Strict-mode signals are optional: an older database without the
   // integrity migration still returns results, just without these counters.
   const integrity = new Map<string, IntegrityRow>();
@@ -72,7 +67,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     for (const item of (integrityRows || []) as IntegrityRow[]) integrity.set(`${item.link_id}:${item.student_id}`, item);
   }
   const rows = (attempts || []).map((row) => {
-    const studentName = names.get(row.student_id) || "Student";
+    const identity = identities.get(row.student_id) || { name: "Student", email: null };
     const signals = integrity.get(`${row.link_id}:${row.student_id}`);
     return {
       ...row,
@@ -80,9 +75,11 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
         leaves: signals.leaves, pastes: signals.pastes, copies: signals.copies, auto_submitted: signals.auto_submitted,
         away_seconds: signals.away_seconds, question_seconds: signals.question_seconds,
       } : null,
-      student_name: studentName,
+      student_name: identity.name,
+      student_email: identity.email,
       // Keep the display name intact; exports use this spreadsheet-safe form.
-      csv_student_name: spreadsheetSafeText(studentName),
+      csv_student_name: spreadsheetSafeText(identity.name),
+      csv_student_email: spreadsheetSafeText(identity.email ?? ""),
     };
   });
   const { data: summaryRows, error: summaryError } = await db.rpc("web_test_attempt_summary", { p_test_id: id });

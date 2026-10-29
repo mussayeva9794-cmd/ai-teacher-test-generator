@@ -105,7 +105,7 @@ test("teacher results read signals through an ownership-checked, failure-toleran
   assert.match(teacherPage, /\{p\.strictNote\}/);
   assert.match(ru.testPage.strictNote, /Это сигналы для внимания, а не доказательство/);
   assert.match(teacherPage, /const headers = p\.csvHeaders;/);
-  assert.deepEqual(ru.testPage.csvHeaders.slice(4), ["Уходов со страницы", "Вне теста (с)", "Вставок", "Копирований", "Автосдача"]);
+  assert.deepEqual(ru.testPage.csvHeaders.slice(5), ["Уходов со страницы", "Вне теста (с)", "Вставок", "Копирований", "Автосдача"]);
 });
 
 test("the student page hides questions on leave, blocks clipboard, and receives only server-selected questions", () => {

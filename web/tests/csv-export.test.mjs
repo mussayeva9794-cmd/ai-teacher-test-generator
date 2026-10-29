@@ -30,7 +30,7 @@ test("attempts API and UI export builder use the safe student name and CSV seria
   const route = await readFile(new URL("../app/api/tests/[id]/attempts/route.ts", import.meta.url), "utf8");
   const page = await readFile(new URL("../app/tests/[id]/page.tsx", import.meta.url), "utf8");
 
-  assert.match(route, /csv_student_name:\s*spreadsheetSafeText\(studentName\)/);
+  assert.match(route, /csv_student_name:\s*spreadsheetSafeText\(identity\.name\)/);
   assert.match(page, /a\.csv_student_name\s*\?\?\s*a\.student_name/);
   assert.match(page, /row\.map\(csvCell\)/);
 });
