@@ -5,10 +5,11 @@ import { studentIdentity } from "./student-names";
 
 export type ProgressAttempt = { test_id: string; student_id: string; percentage: number | null; submitted_at: string };
 export type ProgressTest = { id: string; title: string };
-export type ProgressMember = { email: string; student_id: string | null };
+export type ProgressMember = { email: string; student_id: string | null; full_name?: string | null };
 
 export type ProgressRow = {
-  // The student's profile name once they have signed in; null until then.
+  // The roster name the teacher typed, else the profile name once the
+  // student has signed in; null when there is neither.
   name: string | null;
   email: string;
   // null: not taken; "pending": waiting for the teacher's check.
@@ -35,7 +36,7 @@ export function classProgress(members: ProgressMember[], tests: ProgressTest[], 
       return !attempt ? null : attempt.percentage === null ? "pending" as const : attempt.percentage;
     });
     const graded = cells.filter((cell): cell is number => typeof cell === "number");
-    const shown = studentIdentity(member.student_id ? names.get(member.student_id) : null, member.email);
+    const shown = studentIdentity(member.student_id ? names.get(member.student_id) : null, member.email, member.full_name);
     return {
       name: shown.email ? shown.name : null, email: member.email, cells,
       average: graded.length ? Math.round(graded.reduce((sum, value) => sum + value, 0) / graded.length) : null,

@@ -94,7 +94,7 @@ test("Google sign-in returns to an internal route and asks shared devices to cho
 
 test("class rosters cannot self-assign teacher roles and API mutations require teachers", () => {
   assert.match(classApi, /actor\.role !== "teacher"/);
-  assert.match(classApi, /normalizedClassEmails/);
+  assert.match(classApi, /rosterFromBody/);
   assert.match(baseSchema, /coalesce\([\s\S]*raw_user_meta_data->>'full_name'[\s\S]*raw_user_meta_data->>'name'[\s\S]*'student'/i);
   assert.match(migration, /'student'\s*\) on conflict/i);
   assert.doesNotMatch(migration, /raw_user_meta_data\s*->>\s*'role'/i);

@@ -16,12 +16,19 @@ const MAX_USER_PAGES = 100;
  * emails cannot be loaded, so a teacher never gets a silently incomplete list.
  */
 export async function studentIdentities(ids: string[]): Promise<Map<string, StudentIdentity> | null> {
+  const profiles = await studentProfiles(ids);
+  if (!profiles) return null;
+  return new Map([...profiles].map(([id, profile]) => [id, studentIdentity(profile.name, profile.email)]));
+}
+
+/** The same lookup before it is shaped for display: profile name and email as stored. */
+export async function studentProfiles(ids: string[]): Promise<Map<string, { name: string | null; email: string | null }> | null> {
   const unique = [...new Set(ids)];
   const names = await profileNames(unique);
   if (!names) return null;
   const emails = await studentEmails(adminClient(), unique);
   if (!emails) return null;
-  return new Map(unique.map((id) => [id, studentIdentity(names.get(id), emails.get(id))]));
+  return new Map(unique.map((id) => [id, { name: names.get(id) ?? null, email: emails.get(id) ?? null }]));
 }
 
 async function studentEmails(admin: SupabaseClient, ids: string[]): Promise<Map<string, string> | null> {
