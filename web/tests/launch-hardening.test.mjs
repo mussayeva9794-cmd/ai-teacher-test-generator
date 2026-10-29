@@ -37,7 +37,7 @@ test("public sign-up never requests a teacher role", () => {
 
 test("post-login destination uses the stored profile role", () => {
   assert.equal(defaultDestination("teacher"), "/dashboard");
-  assert.equal(defaultDestination("student"), "/");
+  assert.equal(defaultDestination("student"), "/my");
   assert.equal(defaultDestination(undefined), "/");
 });
 
