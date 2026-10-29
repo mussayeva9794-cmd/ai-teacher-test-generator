@@ -32,6 +32,10 @@ export default function MyTests() {
           setError(serverMessage(t, cause instanceof Error ? cause.message : "", m.loadFailed));
         })
         .finally(() => { if (active) setLoading(false); });
+    }).catch(() => {
+      if (!active) return;
+      setError(m.loadFailed);
+      setLoading(false);
     });
     return () => { active = false; };
   }, [router]);

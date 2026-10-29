@@ -2,6 +2,9 @@ import type { NextRequest } from "next/server";
 import { actorFromRequest, jsonError } from "@/lib/auth";
 import { adminClient } from "@/lib/supabase-admin";
 import { myAttempts, type MyAttemptRow, type MyLinkRow, type MyTestRow } from "@/lib/my-attempts";
+import { parseSettings } from "@/lib/assessment";
+import { isMissingClassSchema } from "@/lib/schema-compat";
+import { isAllowedByEmailList } from "@/lib/share-access";
 
 const MAX_SHOWN = 200;
 
@@ -21,10 +24,36 @@ export async function GET(request: NextRequest) {
   if (error) return jsonError("Could not load your tests.", 503);
   const rows = (attempts || []) as MyAttemptRow[];
   if (!rows.length) return Response.json({ attempts: [] });
-  const [{ data: tests, error: testsError }, { data: links, error: linksError }] = await Promise.all([
+  const [{ data: tests, error: testsError }, linkResult] = await Promise.all([
     admin.from("web_tests").select("id,title,topic,status").in("id", [...new Set(rows.map((row) => row.test_id))]),
-    admin.from("web_share_links").select("id,token,settings,is_active").in("id", [...new Set(rows.map((row) => row.link_id))]),
+    loadLinks(admin, [...new Set(rows.map((row) => row.link_id))]),
   ]);
-  if (testsError || linksError) return jsonError("Could not load your tests.", 503);
-  return Response.json({ attempts: myAttempts(rows, (tests || []) as MyTestRow[], (links || []) as MyLinkRow[]) });
+  if (testsError || !linkResult) return jsonError("Could not load your tests.", 503);
+  const links = linkResult;
+  // The result link is offered only where the test page would let this student in again.
+  const classIds = [...new Set(links.map((link) => link.class_id).filter((id): id is string => Boolean(id)))];
+  let openClasses = new Set<string>();
+  if (classIds.length && actor.googleEmail) {
+    const [{ data: classes, error: classError }, { data: members, error: memberError }] = await Promise.all([
+      admin.from("web_classes").select("id,is_active").in("id", classIds),
+      admin.from("web_class_members").select("class_id,email").in("class_id", classIds).eq("student_id", actor.id),
+    ]);
+    if (classError || memberError) return jsonError("Could not load your tests.", 503);
+    const active = new Set((classes || []).filter((row) => row.is_active).map((row) => row.id as string));
+    openClasses = new Set((members || []).filter((row) => row.email === actor.googleEmail && active.has(row.class_id))
+      .map((row) => row.class_id as string));
+  }
+  const canOpen = (link: MyLinkRow) => link.class_id
+    ? actor.hasGoogleIdentity && openClasses.has(link.class_id)
+    : isAllowedByEmailList(actor.email, actor.emailVerified, parseSettings(link.settings).allowed_students);
+  return Response.json({ attempts: myAttempts(rows, (tests || []) as MyTestRow[], links, canOpen) });
+}
+
+/** Share links by id; a database without the class migration has no class_id column. */
+async function loadLinks(admin: ReturnType<typeof adminClient>, ids: string[]): Promise<MyLinkRow[] | null> {
+  const withClass = await admin.from("web_share_links").select("id,token,settings,is_active,class_id").in("id", ids);
+  if (!withClass.error) return (withClass.data || []) as MyLinkRow[];
+  if (!isMissingClassSchema(withClass.error)) return null;
+  const { data, error } = await admin.from("web_share_links").select("id,token,settings,is_active").in("id", ids);
+  return error ? null : (data || []) as MyLinkRow[];
 }
