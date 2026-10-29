@@ -21,7 +21,7 @@ const { PATCH } = await import("../app/api/classes/[id]/members/[memberId]/route
 /** respond(table, calls) returns { data, error } for each finished query. */
 function setup(respond) {
   const writes = [];
-  const db = { from(table) {
+  const db = { rpc: async (name, args) => { writes.push({ table: "rpc", kind: name, payload: args }); return respond("rpc", [["rpc", name, args]]); }, from(table) {
     const calls = [];
     const finish = () => {
       const write = calls.find(([name]) => name === "upsert" || name === "update");
@@ -44,35 +44,29 @@ const body = (value) => ({ json: async () => value });
 const classContext = { params: Promise.resolve({ id: "c1" }) };
 const memberContext = { params: Promise.resolve({ id: "c1", memberId: "m1" }) };
 
-test("adding students is one write that keeps a stored name for email-only lines", async () => {
-  const writes = setup((table, calls) => activeClass(table)
-    ?? (calls.some(([name]) => name === "upsert") ? { error: null }
-      : { data: [{ email: "old@x.kz", full_name: "Сериков Айгерим" }], error: null }));
+test("adding students is one database call that the SQL function makes name-preserving", async () => {
+  const writes = setup((table) => activeClass(table) ?? { data: 3, error: null });
   const response = await POST(body({ students: [
-    { email: "old@x.kz" }, { email: "new@x.kz", full_name: "Ахметов Нурлан" }, { email: "plain@x.kz" },
+    { email: "Old@x.kz" }, { email: "new@x.kz", full_name: " Ахметов  Нурлан " }, { email: "old@x.kz", full_name: "" },
   ] }), classContext);
   assert.equal(response.status, 200);
-  assert.equal(writes.length, 1);
-  assert.deepEqual(writes[0].payload, [
-    { class_id: "c1", email: "old@x.kz", full_name: "Сериков Айгерим" },
-    { class_id: "c1", email: "new@x.kz", full_name: "Ахметов Нурлан" },
-    { class_id: "c1", email: "plain@x.kz", full_name: null },
-  ]);
-  assert.deepEqual(writes[0].options, { onConflict: "class_id,email" });
+  assert.deepEqual(writes, [{ table: "rpc", kind: "add_web_class_members", payload: { p_class_id: "c1", p_students: [
+    { email: "old@x.kz", full_name: null }, { email: "new@x.kz", full_name: "Ахметов Нурлан" },
+  ] } }]);
 });
 
-test("when stored names cannot be read, nothing is written", async () => {
-  const writes = setup((table) => activeClass(table) ?? { data: null, error: { message: "down" } });
-  const response = await POST(body({ emails: ["a@x.kz"] }), classContext);
-  assert.equal(response.status, 503);
+test("a failed save reports an error and an invalid list sends nothing", async () => {
+  let writes = setup((table) => activeClass(table) ?? { data: null, error: { message: "down" } });
+  assert.equal((await POST(body({ emails: ["a@x.kz"] }), classContext)).status, 503);
+  writes = setup((table) => activeClass(table) ?? { data: 1, error: null });
+  assert.equal((await POST(body({ students: [{ email: "bad" }] }), classContext)).status, 400);
   assert.equal(writes.length, 0);
 });
 
 test("the older emails-only request still works", async () => {
-  const writes = setup((table, calls) => activeClass(table) ?? (calls.some(([name]) => name === "upsert") ? { error: null } : { data: [], error: null }));
-  const response = await POST(body({ emails: ["A@x.kz"] }), classContext);
-  assert.equal(response.status, 200);
-  assert.deepEqual(writes[0].payload, [{ class_id: "c1", email: "a@x.kz", full_name: null }]);
+  const writes = setup((table) => activeClass(table) ?? { data: 1, error: null });
+  assert.equal((await POST(body({ emails: ["A@x.kz"] }), classContext)).status, 200);
+  assert.deepEqual(writes[0].payload.p_students, [{ email: "a@x.kz", full_name: null }]);
 });
 
 test("renaming needs the full_name field; null or empty clears it", async () => {

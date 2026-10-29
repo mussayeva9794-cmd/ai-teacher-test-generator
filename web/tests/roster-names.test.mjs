@@ -83,9 +83,8 @@ test("roster names are read with the teacher's own client and a name never clear
   assert.match(results, /rosterNames\(db, studentIds\)/);
   assert.match(results, /if \(!profiles \|\| !roster \|\| linksError\) return jsonError/);
   const members = read("../app/api/classes/[id]/members/route.ts");
-  // One write: an email-only line carries over the stored name instead of clearing it.
-  assert.equal((members.match(/\.upsert\(/g) || []).length, 1);
-  assert.match(members, /full_name: student\.full_name \?\? kept\.get\(student\.email\) \?\? null/);
+  assert.match(members, /db\.rpc\("add_web_class_members", \{ p_class_id: id, p_students: students \}\)/);
+  assert.doesNotMatch(members, /\.upsert\(/);
   const member = read("../app/api/classes/[id]/members/[memberId]/route.ts");
   assert.match(member, /!\("full_name" in body\)\) return jsonError\("Invalid request body\."\)/);
   assert.match(member, /export async function PATCH[\s\S]*actor\.role !== "teacher"[\s\S]*\.eq\("owner_id", actor\.id\)\.eq\("is_active", true\)/);
@@ -96,5 +95,9 @@ test("the database limits the typed name, in the migration and both base schemas
     const sql = read(file);
     assert.match(sql, /add column if not exists full_name text/);
     assert.match(sql, /char_length\(full_name\) between 1 and 120/);
+    // Name-preserving add: one statement, as the calling teacher, never for anon.
+    assert.match(sql, /set full_name = coalesce\(excluded\.full_name, public\.web_class_members\.full_name\)/);
+    assert.match(sql, /add_web_class_members\(p_class_id uuid, p_students jsonb\)\s*returns integer language sql security invoker set search_path = ''/);
+    assert.match(sql, /revoke all on function public\.add_web_class_members\(uuid, jsonb\) from public, anon;/);
   }
 });
