@@ -16,20 +16,22 @@ export function HomeAuthLinks({ placement }: { placement: "nav" | "hero" }) {
   const t = useT();
   const [who, setWho] = useState<Who>("signedOut");
   useEffect(() => {
+    let db: ReturnType<typeof browserClient>;
+    try { db = browserClient(); }
+    catch { return; } // No Supabase configuration: keep the sign-in buttons.
     let active = true;
+    // Signing out in one place (the nav) also resets the hero buttons.
+    const { data: listener } = db.auth.onAuthStateChange((event) => {
+      if (event === "SIGNED_OUT" && active) setWho("signedOut");
+    });
     void (async () => {
-      try {
-        const db = browserClient();
-        const { data: { session } } = await db.auth.getSession();
-        if (!session) return;
-        const { data } = await db.from("web_profiles").select("role").eq("id", session.user.id).maybeSingle();
-        // Without a readable profile the dashboard decides what this account may see.
-        if (active) setWho(data?.role === "student" ? "student" : "teacher");
-      } catch {
-        // No Supabase configuration: keep the sign-in buttons.
-      }
-    })();
-    return () => { active = false; };
+      const { data: { session } } = await db.auth.getSession();
+      if (!session) return;
+      const { data } = await db.from("web_profiles").select("role").eq("id", session.user.id).maybeSingle();
+      // Without a readable profile the dashboard decides what this account may see.
+      if (active) setWho(data?.role === "student" ? "student" : "teacher");
+    })().catch(() => undefined);
+    return () => { active = false; listener.subscription.unsubscribe(); };
   }, []);
 
   async function signOut() {
