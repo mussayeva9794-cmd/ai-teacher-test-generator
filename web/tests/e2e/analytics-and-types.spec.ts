@@ -70,7 +70,7 @@ const questions = [
 ];
 const variant = { title: "Повторение", instructions: "", questions };
 const attempt = (id: string, name: string, answers: Record<string, unknown>, scores: [string, number, boolean?][], percentage: number | null) => ({
-  id, link_id: "l1", student_id: id, student_name: name, variant_name: "Variant A", percentage, answers, submitted_at: "2026-10-26T09:00:00Z",
+  id, link_id: "l1", student_id: id, student_name: name, student_email: `${id}@school.kz`, variant_name: "Variant A", percentage, answers, submitted_at: "2026-10-26T09:00:00Z",
   result: { requires_manual_review: percentage === null, per_question: scores.map(([qid, score, review]) => ({ id: qid, skill_tag: "", score, requires_manual_review: Boolean(review) })) },
   integrity: null,
 });
@@ -110,7 +110,9 @@ test("class analytics shows the heat map and the hardest question first", async 
   await openResults(page);
   await page.getByRole("button", { name: "Показать аналитику" }).click();
   const heat = page.locator(".heatmap");
-  await expect(heat.getByRole("rowheader", { name: "Айгерим" })).toBeVisible();
+  await expect(heat.getByRole("rowheader", { name: /Айгерим/ })).toBeVisible();
+  // The email under each name tells apart students with the same name.
+  await expect(heat.locator("tbody tr").first().locator(".student-email")).toHaveText(/@school\.kz$/);
   await expect(heat.locator("tbody tr").first().locator("td.heat-right")).toHaveCount(2);
   await expect(heat.locator("tbody tr").nth(2).locator("td.heat-pending")).toHaveCount(1);
   const first = page.locator(".item-stat").first();
