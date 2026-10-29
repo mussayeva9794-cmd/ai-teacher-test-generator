@@ -20,7 +20,10 @@ export type RosterEntry = { email: string; full_name: string | null };
 
 const MAX_ROSTER = 100;
 export const MAX_STUDENT_NAME = 120;
-const EMAIL_IN_TEXT = /[^\s,;<>()"'|]+@[^\s,;<>()"'|]+\.[^\s,;<>()"'|]+/gu;
+// An apostrophe may sit inside the part before @ (o'brien@school.kz), never at its ends.
+const EMAIL_IN_TEXT = /[^\s,;<>()"'|]+(?:'[^\s,;<>()"'|]+)*@[^\s,;<>()"'|]+\.[^\s,;<>()"'|]+/gu;
+// "1. ", "2) " or "3 " before a name in a numbered list.
+const LINE_NUMBER = /^\d{1,4}(?:[.)]?(?:\s+|$)|[.)](?=\p{L}))/u;
 
 /** A teacher-typed student name: whitespace collapsed, at least one letter, no control characters. */
 export function normalizedStudentName(value: unknown): string | null | undefined {
@@ -49,17 +52,18 @@ export function normalizedClassStudents(value: unknown): RosterEntry[] | null {
 
 /**
  * Reads a pasted roster: one student per line as "Фамилия Имя, email" (any
- * order, comma, tab or spaces between), or plain emails as before, several
- * to a line. Lines it cannot read are returned so the teacher can fix them.
+ * order; comma, tab or spaces between), or plain emails as before, several
+ * to a line. A list number before the name is dropped. Lines it cannot read
+ * are returned so the teacher can fix them.
  */
 export function parseRoster(text: string): { entries: RosterEntry[]; invalid: string[] } {
   const entries: RosterEntry[] = [];
   const invalid: string[] = [];
-  for (const raw of text.split(/\r?\n|;/)) {
-    const line = raw.trim();
-    if (!line) continue;
+  for (const line of rosterRecords(text)) {
     const emails = line.match(EMAIL_IN_TEXT) || [];
-    const rest = line.replace(EMAIL_IN_TEXT, " ").replace(/[<>()"'|,\t]/g, " ")
+    // Apostrophes between letters belong to the name (O'Brien); others are quotes.
+    const rest = line.replace(EMAIL_IN_TEXT, " ").replace(/[<>()"|,;\t]/g, " ")
+      .replace(/(?<!\p{L})'|'(?!\p{L})/gu, " ").trim().replace(LINE_NUMBER, "")
       .replace(/^[\s\-–—:.]+|[\s\-–—:.]+$/gu, "").replace(/\s+/g, " ").trim();
     const name = normalizedStudentName(rest);
     const valid = emails.length > 0 && normalizedClassEmails(emails) !== null && name !== undefined && (emails.length === 1 || !name);
@@ -67,6 +71,23 @@ export function parseRoster(text: string): { entries: RosterEntry[]; invalid: st
     for (const email of emails) entries.push({ email: email.toLowerCase(), full_name: name ?? null });
   }
   return { entries, invalid };
+}
+
+/**
+ * Splits pasted text into student records. A ";" separates students when
+ * every part has an email ("Иванов, a@x.kz; Петров, b@x.kz"); otherwise it
+ * separates the columns of one row, as Excel in ru/kk saves "Иванов;a@x.kz".
+ */
+function rosterRecords(text: string): string[] {
+  const records: string[] = [];
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line) continue;
+    const parts = line.split(";").map((part) => part.trim()).filter(Boolean);
+    const onePerPart = parts.length > 1 && parts.every((part) => (part.match(EMAIL_IN_TEXT) || []).length > 0);
+    records.push(...(onePerPart ? parts : [line]));
+  }
+  return records;
 }
 
 /** A roster from a request body: `students` with names, or the older `emails` list. */

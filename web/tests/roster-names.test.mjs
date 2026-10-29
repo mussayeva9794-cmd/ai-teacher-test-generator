@@ -35,6 +35,34 @@ test("lines without an email, with two emails and a name, or with a bad name are
   assert.equal(invalid.length, 4);
 });
 
+test("apostrophes, list numbers and Excel semicolons are read as the teacher meant", () => {
+  const { entries, invalid } = parseRoster([
+    "o'brien@school.kz",
+    "O'Brien Sean, sean@x.kz",
+    "1. Иванов Иван, ivan@x.kz",
+    "2) Петров Пётр petr@x.kz",
+    "3\tКим Анна\tanna@x.kz",
+    "Ахметов Нурлан;nurlan@x.kz",
+    "4. d@x.kz",
+    "'quoted@x.kz'",
+  ].join("\n"));
+  assert.deepEqual(invalid, []);
+  assert.deepEqual(entries, [
+    { email: "o'brien@school.kz", full_name: null },
+    { email: "sean@x.kz", full_name: "O'Brien Sean" },
+    { email: "ivan@x.kz", full_name: "Иванов Иван" },
+    { email: "petr@x.kz", full_name: "Петров Пётр" },
+    { email: "anna@x.kz", full_name: "Ким Анна" },
+    { email: "nurlan@x.kz", full_name: "Ахметов Нурлан" },
+    { email: "d@x.kz", full_name: null },
+    { email: "quoted@x.kz", full_name: null },
+  ]);
+  // ";" between students still works when each part has its own email.
+  assert.deepEqual(parseRoster("Иванов Иван, a@x.kz; Петров Пётр, b@x.kz\n1;Ким Анна;c@x.kz"), { invalid: [], entries: [
+    { email: "a@x.kz", full_name: "Иванов Иван" }, { email: "b@x.kz", full_name: "Петров Пётр" }, { email: "c@x.kz", full_name: "Ким Анна" },
+  ] });
+});
+
 test("student names are trimmed and must contain letters, without control characters", () => {
   assert.equal(normalizedStudentName("  Серикова   Айгерим "), "Серикова Айгерим");
   assert.equal(normalizedStudentName(""), null);
@@ -81,7 +109,7 @@ test("an attempt takes the name from the link's class, else from another class o
 test("roster names are read with the teacher's own client and a name never clears from an email-only line", () => {
   const results = read("../app/api/tests/[id]/attempts/route.ts");
   assert.match(results, /rosterNames\(db, studentIds\)/);
-  assert.match(results, /if \(!profiles \|\| !roster \|\| linksError\) return jsonError/);
+  assert.match(results, /if \(!profiles \|\| !roster \|\| \(linksError && !classesMissing\)\) return jsonError/);
   const members = read("../app/api/classes/[id]/members/route.ts");
   assert.match(members, /db\.rpc\("add_web_class_members", \{ p_class_id: id, p_students: students \}\)/);
   assert.doesNotMatch(members, /\.upsert\(/);

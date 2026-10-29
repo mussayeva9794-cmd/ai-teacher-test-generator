@@ -10,3 +10,13 @@ export function isMissingClassSchema(error: DatabaseError): boolean {
   }
   return false;
 }
+
+/**
+ * True when the roster tables or the typed-name column are not migrated yet
+ * (supabase_class_member_names.sql). Results then fall back to profile names.
+ */
+export function isMissingRosterNameSchema(error: DatabaseError): boolean {
+  if (isMissingClassSchema(error)) return true;
+  if (!error || !["42703", "PGRST204"].includes(error.code || "")) return false;
+  return (error.message?.toLowerCase() || "").includes("full_name");
+}

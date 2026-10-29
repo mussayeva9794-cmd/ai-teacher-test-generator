@@ -6,6 +6,7 @@ import { studentProfiles } from "@/lib/student-lookup";
 import { rosterNameFor, rosterNames } from "@/lib/roster-names";
 import { studentIdentity } from "@/lib/student-names";
 import { spreadsheetSafeText } from "@/lib/csv-export";
+import { isMissingClassSchema } from "@/lib/schema-compat";
 
 type IntegrityRow = {
   link_id: string; student_id: string; leaves: number; pastes: number; copies: number;
@@ -63,10 +64,12 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     rosterNames(db, studentIds),
     db.from("web_share_links").select("id,class_id").eq("test_id", id),
   ]);
-  if (!profiles || !roster || linksError) return jsonError("Could not load student display names.", 503);
+  // Without the class migrations links have no class; names come from profiles.
+  const classesMissing = isMissingClassSchema(linksError);
+  if (!profiles || !roster || (linksError && !classesMissing)) return jsonError("Could not load student display names.", 503);
   // The name the teacher typed in the class roster comes before the profile name.
   const typedName = rosterNameFor(roster);
-  const linkClass = new Map((links || []).map((link) => [link.id as string, link.class_id as string | null]));
+  const linkClass = new Map((classesMissing ? [] : links || []).map((link) => [link.id as string, link.class_id as string | null]));
   // Strict-mode signals are optional: an older database without the
   // integrity migration still returns results, just without these counters.
   const integrity = new Map<string, IntegrityRow>();
