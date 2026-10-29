@@ -1,7 +1,6 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { adminClient } from "./supabase-admin";
-import { studentIdentity, type StudentIdentity } from "./student-names";
 
 const EMAIL_LOOKUPS_AT_ONCE = 10;
 // Up to this many students each email is looked up by id; above it the user
@@ -12,16 +11,10 @@ const MAX_USER_PAGES = 100;
 
 /**
  * Names and emails for students whose attempts or class rows the teacher can
- * already read. Callers must pass only such ids. Returns null when profiles or
- * emails cannot be loaded, so a teacher never gets a silently incomplete list.
+ * already read, as stored (shape them with studentIdentity). Callers must pass
+ * only such ids. Returns null when profiles or emails cannot be loaded, so a
+ * teacher never gets a silently incomplete list.
  */
-export async function studentIdentities(ids: string[]): Promise<Map<string, StudentIdentity> | null> {
-  const profiles = await studentProfiles(ids);
-  if (!profiles) return null;
-  return new Map([...profiles].map(([id, profile]) => [id, studentIdentity(profile.name, profile.email)]));
-}
-
-/** The same lookup before it is shaped for display: profile name and email as stored. */
 export async function studentProfiles(ids: string[]): Promise<Map<string, { name: string | null; email: string | null }> | null> {
   const unique = [...new Set(ids)];
   const names = await profileNames(unique);
