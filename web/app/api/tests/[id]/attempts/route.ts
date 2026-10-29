@@ -2,7 +2,9 @@ import type { NextRequest } from "next/server";
 import { actorFromRequest, jsonError } from "@/lib/auth";
 import { userClient } from "@/lib/supabase";
 import { adminClient } from "@/lib/supabase-admin";
-import { studentIdentities } from "@/lib/student-lookup";
+import { studentProfiles } from "@/lib/student-lookup";
+import { rosterNameFor, rosterNames } from "@/lib/roster-names";
+import { studentIdentity } from "@/lib/student-names";
 import { spreadsheetSafeText } from "@/lib/csv-export";
 
 type IntegrityRow = {
@@ -55,8 +57,16 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     }
     attempts = allRows;
   }
-  const identities = await studentIdentities((attempts || []).map((row) => row.student_id));
-  if (!identities) return jsonError("Could not load student display names.", 503);
+  const studentIds = (attempts || []).map((row) => row.student_id);
+  const [profiles, roster, { data: links, error: linksError }] = await Promise.all([
+    studentProfiles(studentIds),
+    rosterNames(db, studentIds),
+    db.from("web_share_links").select("id,class_id").eq("test_id", id),
+  ]);
+  if (!profiles || !roster || linksError) return jsonError("Could not load student display names.", 503);
+  // The name the teacher typed in the class roster comes before the profile name.
+  const typedName = rosterNameFor(roster);
+  const linkClass = new Map((links || []).map((link) => [link.id as string, link.class_id as string | null]));
   // Strict-mode signals are optional: an older database without the
   // integrity migration still returns results, just without these counters.
   const integrity = new Map<string, IntegrityRow>();
@@ -67,7 +77,8 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     for (const item of (integrityRows || []) as IntegrityRow[]) integrity.set(`${item.link_id}:${item.student_id}`, item);
   }
   const rows = (attempts || []).map((row) => {
-    const identity = identities.get(row.student_id) || { name: "Student", email: null };
+    const profile = profiles.get(row.student_id);
+    const identity = studentIdentity(profile?.name, profile?.email, typedName(row.student_id, linkClass.get(row.link_id)));
     const signals = integrity.get(`${row.link_id}:${row.student_id}`);
     return {
       ...row,

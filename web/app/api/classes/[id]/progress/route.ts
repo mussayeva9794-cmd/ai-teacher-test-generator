@@ -20,7 +20,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   if (classError) return jsonError("Could not verify class access.", 503);
   if (!classRow) return jsonError("Class not found or could not be updated.", 404);
   const [{ data: members, error: memberError }, { data: tests, error: testError }] = await Promise.all([
-    db.from("web_class_members").select("email,student_id").eq("class_id", id),
+    db.from("web_class_members").select("email,student_id,full_name").eq("class_id", id),
     db.from("web_tests").select("id,title").eq("owner_id", actor.id).order("created_at", { ascending: false }).limit(MAX_TESTS + 1),
   ]);
   if (memberError || testError) return jsonError("Could not load results.", 503);

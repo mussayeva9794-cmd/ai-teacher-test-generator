@@ -74,7 +74,7 @@ export type ClassRow = {
   is_active: boolean;
   created_at: string;
   // name: the student's profile name once they have signed in.
-  web_class_members: { id: string; email: string; student_id: string | null; created_at: string; name?: string | null }[];
+  web_class_members: { id: string; email: string; full_name?: string | null; student_id: string | null; created_at: string; name?: string | null }[];
 };
 
 export type TestRow = {

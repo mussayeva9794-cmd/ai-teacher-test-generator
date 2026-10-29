@@ -67,6 +67,16 @@ create table if not exists public.web_class_members (
 create unique index if not exists web_class_members_student_unique
   on public.web_class_members(class_id, student_id) where student_id is not null;
 create index if not exists web_class_members_email on public.web_class_members(email);
+-- Optional teacher-typed name (also in supabase_class_member_names.sql).
+alter table public.web_class_members
+  add column if not exists full_name text
+  constraint web_class_members_full_name_check check (
+    full_name is null or (
+      full_name = btrim(full_name)
+      and char_length(full_name) between 1 and 120
+      and full_name !~ '[[:cntrl:]]'
+    )
+  );
 
 create table if not exists public.web_share_links (
   id uuid primary key default gen_random_uuid(),
