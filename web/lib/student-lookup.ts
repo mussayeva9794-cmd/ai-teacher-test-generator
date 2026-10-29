@@ -31,17 +31,25 @@ async function studentEmails(admin: SupabaseClient, ids: string[]): Promise<Map<
       for (let offset = 0; offset < ids.length; offset += EMAIL_LOOKUPS_AT_ONCE) {
         const results = await Promise.all(ids.slice(offset, offset + EMAIL_LOOKUPS_AT_ONCE).map((id) => admin.auth.admin.getUserById(id)));
         for (const { data, error } of results) {
-          if (error) throw error;
+          // A deleted account has no email to show; any other error is a failure.
+          if (error && error.status !== 404) throw error;
           if (data.user?.email) emails.set(data.user.id, data.user.email);
         }
       }
       return emails;
     }
     const wanted = new Set(ids);
-    for (let page = 1; page <= MAX_USER_PAGES && emails.size < wanted.size; page++) {
+    const found = new Set<string>();
+    for (let page = 1; found.size < wanted.size; page++) {
+      // More users than the scan covers: report it rather than return a partial list.
+      if (page > MAX_USER_PAGES) throw new Error("User list is larger than the lookup covers.");
       const { data, error } = await admin.auth.admin.listUsers({ page, perPage: USERS_PER_PAGE });
       if (error) throw error;
-      for (const user of data.users) if (wanted.has(user.id) && user.email) emails.set(user.id, user.email);
+      for (const user of data.users) {
+        if (!wanted.has(user.id)) continue;
+        found.add(user.id);
+        if (user.email) emails.set(user.id, user.email);
+      }
       if (data.users.length < USERS_PER_PAGE) break;
     }
     return emails;
