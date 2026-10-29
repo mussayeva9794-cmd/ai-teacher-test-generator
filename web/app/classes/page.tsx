@@ -12,11 +12,11 @@ import { ClassProgress } from "./class-progress";
 
 type Member = ClassRow["web_class_members"][number];
 
-// Roster order: by the shown name (surname first when the teacher typed it so), then email.
 function badLinesMessage(c: { badLines: (lines: string, more: number) => string }, invalid: string[]) {
   return c.badLines(invalid.slice(0, 5).join(" · "), Math.max(0, invalid.length - 5));
 }
 
+// Roster order: by the shown name (surname first when the teacher typed it so), then email.
 function byShownName(a: Member, b: Member) {
   return (a.name || a.email).localeCompare(b.name || b.email) || a.email.localeCompare(b.email);
 }

@@ -6,6 +6,7 @@ This feature uses Supabase Auth for Google sign-in and keeps teacher roles admin
 
 1. Keep the current deployment running while preparing the database change.
 2. In the Supabase SQL Editor, review and apply `supabase_google_classes.sql` to the existing project. It is additive; it does not delete attempts or rewrite existing share links. Verify that the query completes successfully.
+   Then apply `supabase_class_member_names.sql` before deploying the version with student full names. It adds one nullable `full_name` column to `web_class_members` (checked: trimmed, 1-120 characters, no control characters); existing rows and the previous app version keep working. Rollback: redeploy the previous app; the column can stay.
 3. Configure Google OAuth in Google Cloud and Supabase using the values below. Keep the Google Client Secret only in Supabase Auth provider settings; never place it in Vercel or a `NEXT_PUBLIC_*` variable.
 4. Deploy the application code that includes this migration's matching API/schema support.
 5. Sign in with one test Google student, add that student's exact Google email to a test class, create a test link for the class, and check both an enrolled and an unenrolled account.

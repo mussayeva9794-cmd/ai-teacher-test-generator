@@ -18,9 +18,11 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   const actor = await actorFromRequest(request);
   if (!actor || actor.role !== "teacher") return jsonError("Teacher sign-in required.", 401);
   const { id, memberId } = await params;
-  let body: { full_name?: unknown };
+  let body: unknown;
   try { body = await request.json(); } catch { return jsonError("Invalid request body."); }
-  const fullName = normalizedStudentName(body.full_name);
+  // The field must be sent: null or "" clears the name, a missing field is an error.
+  if (!body || typeof body !== "object" || Array.isArray(body) || !("full_name" in body)) return jsonError("Invalid request body.");
+  const fullName = normalizedStudentName((body as { full_name: unknown }).full_name);
   if (fullName === undefined) return jsonError("Student name must be up to 120 characters and contain letters.");
   const db = userClient(actor.accessToken);
   const { data: classRow, error: classError } = await db.from("web_classes")

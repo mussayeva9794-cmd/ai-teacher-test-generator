@@ -83,9 +83,11 @@ test("roster names are read with the teacher's own client and a name never clear
   assert.match(results, /rosterNames\(db, studentIds\)/);
   assert.match(results, /if \(!profiles \|\| !roster \|\| linksError\) return jsonError/);
   const members = read("../app/api/classes/[id]/members/route.ts");
-  assert.match(members, /\[\[named, false\], \[unnamed, true\]\]/);
-  assert.match(members, /\.map\(\(\{ email \}\) => \(\{ class_id: id, email \}\)\)/);
+  // One write: an email-only line carries over the stored name instead of clearing it.
+  assert.equal((members.match(/\.upsert\(/g) || []).length, 1);
+  assert.match(members, /full_name: student\.full_name \?\? kept\.get\(student\.email\) \?\? null/);
   const member = read("../app/api/classes/[id]/members/[memberId]/route.ts");
+  assert.match(member, /!\("full_name" in body\)\) return jsonError\("Invalid request body\."\)/);
   assert.match(member, /export async function PATCH[\s\S]*actor\.role !== "teacher"[\s\S]*\.eq\("owner_id", actor\.id\)\.eq\("is_active", true\)/);
 });
 
