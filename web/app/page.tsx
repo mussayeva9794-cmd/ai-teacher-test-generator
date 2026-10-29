@@ -3,6 +3,7 @@ import type { CSSProperties } from "react";
 import { PrepareIllustration, ResultsIllustration, ShareIllustration } from "./illustrations";
 import { Brand, BRAND_NAME } from "./brand";
 import { InstallHint } from "./install-hint";
+import { HomeAuthLinks } from "./home-auth-links";
 import { LanguageSwitcher } from "./language-switcher";
 import { getT } from "@/lib/i18n/server";
 
@@ -19,8 +20,7 @@ export default async function Home() {
         <Brand />
         <LanguageSwitcher />
         <nav className="navlinks" aria-label={t.nav.main}>
-          <Link className="btn ghost" href="/login">{t.common.signIn}</Link>
-          <Link className="btn primary" href="/login?mode=signup">{t.common.start}</Link>
+          <HomeAuthLinks placement="nav" />
         </nav>
       </header>
       <InstallHint />
@@ -31,8 +31,7 @@ export default async function Home() {
           <h1 className="enter" style={order(1)}>{h.titleBefore}<em>{h.titleEmphasis}</em>{h.titleAfter}</h1>
           <p className="enter" style={order(2)}>{h.lead}</p>
           <div className="hero-actions enter" style={order(3)}>
-            <Link className="btn primary" href="/login?mode=signup">{h.startWork} <span aria-hidden="true">↗</span></Link>
-            <Link className="btn" href="/login">{h.haveAccount}</Link>
+            <HomeAuthLinks placement="hero" />
           </div>
           <div className="hero-footnote enter" style={order(4)}><span className="hero-footnote-line" /> {h.footnote}</div>
         </section>
