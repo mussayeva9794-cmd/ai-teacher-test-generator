@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { TeacherHeader } from "../teacher-nav";
 import { useRouter } from "next/navigation";
 import { api } from "@/lib/client";
@@ -35,7 +36,7 @@ export default function CreatePage() {
     catch (cause) { setError(serverMessage(t, cause instanceof Error ? cause.message : "", c.failed)); setBusy(false); }
   }
   return <div className="wrap"><TeacherHeader current="create" canLeave={() => !busy || window.confirm(c.leaveConfirm)} />
-    <section className="page-head"><div className="eyebrow">{c.eyebrow}</div><h1>{c.title}</h1><p className="muted">{c.lead}</p></section>
+    <section className="page-head"><div className="eyebrow">{c.eyebrow}</div><h1>{c.title}</h1><p className="muted">{c.lead}</p><Link className="btn" href="/create/written">{t.written.openFromCreate}</Link></section>
     <form onSubmit={generate} className="grid cols-2 page-enter" style={{ alignItems: "start" }}><div className="panel stack"><label className="field">{c.topic}<input required autoFocus placeholder={c.topicPlaceholder} value={topic} onChange={e => setTopic(e.target.value)} maxLength={180} /></label><div className="grid cols-2"><label className="field">{c.count}<input type="number" min={1} max={20} value={count} onChange={e => setCount(Number(e.target.value))} /></label><label className="field">{c.language}<select value={language} onChange={e => setLanguage(e.target.value)}><option value="russian">Русский</option><option value="kazakh">Қазақша</option><option value="english">English</option></select></label></div>
       <label className="field">{c.format}<select value={format} onChange={e => setFormat(e.target.value)}><option value="test">{c.formatTest}</option><option value="sor">{c.formatSor}</option><option value="soch">{c.formatSoch}</option></select></label>{format !== "test" && <p className="muted small" style={{ margin: 0 }}>{c.formatNote}</p>}
       <SourceMaterial text={sourceText} setText={setSourceText} title={sourceTitle} setTitle={setSourceTitle} pages={sourcePages} setPages={setSourcePages} url={sourceUrl} setUrl={setSourceUrl} disabled={busy} onReadingChange={setReadingSource} />

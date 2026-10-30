@@ -46,7 +46,7 @@ test("no translation is empty and Kazakh/English are actually translated", () =>
     for (const [path, text] of strings(dictionaries[locale])) assert.ok(text.trim(), `${locale}${path} is empty`);
   }
   // Words spelled the same in Russian and Kazakh.
-  const shared = new Set([".nav.account", ".testPage.eyebrow", ".testPage.rubricDescriptor", ".testPage.rubricPoints"]);
+  const shared = new Set([".nav.account", ".testPage.eyebrow", ".testPage.rubricDescriptor", ".testPage.rubricPoints", ".create.typeDictation", ".create.typeEssay", ".written.kinds.dictation"]);
   for (const locale of ["kk", "en"]) {
     const same = strings(dictionaries[locale]).filter(([path, text]) =>
       !path.startsWith(".serverErrors") && !shared.has(path) && ru.get(path) === text && /[А-Яа-яЁё]{4,}/.test(text));

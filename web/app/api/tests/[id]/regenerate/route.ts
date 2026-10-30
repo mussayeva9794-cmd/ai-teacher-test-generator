@@ -4,7 +4,7 @@ import { generateQuestion, GroqGenerationError, groqErrorResponse, type Generate
 import { quotaErrorResponse, releaseGenerationWindow, reserveGenerationWindow } from "@/lib/generation-quota";
 import { userClient } from "@/lib/supabase";
 import { adminClient } from "@/lib/supabase-admin";
-import { QUESTION_TYPES } from "@/lib/question-validation";
+import { isWrittenType, QUESTION_TYPES } from "@/lib/question-validation";
 import type { QuestionType, TestRow } from "@/lib/types";
 
 // Same budget as full generation: one question can still go through retries and the fallback model.
@@ -51,6 +51,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   const stored = variant.questions.find((question) => question?.id === body.question_id);
   const type = stored?.type ?? (typeof body.type === "string" && (QUESTION_TYPES as readonly string[]).includes(body.type) ? body.type as QuestionType : null);
   if (!type) return jsonError("Question not found.", 404);
+  if (isWrittenType(type)) return jsonError("AI cannot replace a written work.");
   const saved = {
     id: body.question_id, type,
     question: stored?.question ?? "",

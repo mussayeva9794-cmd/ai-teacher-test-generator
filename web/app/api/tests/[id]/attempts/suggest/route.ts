@@ -66,16 +66,20 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     const variant = variantOf(attempt);
     if (!variant) continue;
     const mine: GradeRequest[] = [];
+    let essay = false;
     for (const row of attempt.result?.per_question || []) {
       if (!row?.requires_manual_review) continue;
       const question = variant.questions.find((item: Question) => item.id === row.id);
       if (!question) continue;
+      // Essays are scored by the teacher alone for now; the AI only knows short answers.
+      if (question.type === "essay") { essay = true; break; }
       mine.push({
         key: `${attempt.id}:${row.id}`, question: question.question,
         modelAnswer: question.correct_answer, studentAnswer: answerText(question, attempt.answers?.[row.id]),
       });
     }
     // Whole attempts only: a partly suggested attempt would have no total.
+    if (essay) continue;
     if (items.length + mine.length > MAX_ITEMS) break;
     items.push(...mine);
   }

@@ -59,6 +59,9 @@ function Sheet({ title, name, variant, s }: { title: string; name: string; varia
       {question.type === "true_false" && <><p className="print-hint">{pr.trueFalseHint}</p><p className="print-tf">{question.options?.map((option, i) => <span key={i}>{option}</span>)}</p></>}
       {question.type === "matching" && <><p className="print-hint">{pr.matchHint}</p><div className="print-match"><ol>{question.pairs?.map((pair, i) => <li key={i}><b>{i + 1}.</b> {pair.left} <i /></li>)}</ol><ul>{matchChoices(question).map((choice, i) => <li key={i}><b>{choiceLabel(pr.letters, i)})</b> {choice}</li>)}</ul></div></>}
       {question.type === "short_answer" && <div className="print-lines"><i /><i /></div>}
+      {question.type === "dictation" && question.dictation_mode === "copy" && <p className="print-copy">{question.correct_answer}</p>}
+      {question.type === "essay" && question.criteria?.length ? <p className="print-hint">{question.criteria.map(item => `${item.name} (${s.written.points(item.points)})`).join(" · ")}</p> : null}
+      {(question.type === "dictation" || question.type === "essay") && <div className="print-lines">{Array.from({ length: question.type === "essay" ? 18 : 12 }, (_, i) => <i key={i} />)}</div>}
     </li>)}</ol>
   </section>;
 }

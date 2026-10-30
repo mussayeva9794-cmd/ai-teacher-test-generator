@@ -15,6 +15,10 @@ export async function GET(request: NextRequest, { params }: Context) {
   return Response.json({ test: data });
 }
 
+// A generated test has four variants, a written work only "Variant A".
+const hasVariantNames = (names: string[]) => (names.length === 4 || names.length === 1) &&
+  names.every(name => ["Variant A", "Variant B", "Variant C", "Variant D"].includes(name)) && (names.length === 4 || names[0] === "Variant A");
+
 export async function PATCH(request: NextRequest, { params }: Context) {
   const actor = await actorFromRequest(request);
   if (!actor || actor.role !== "teacher") return jsonError("Teacher sign-in required.", 401);
@@ -24,7 +28,7 @@ export async function PATCH(request: NextRequest, { params }: Context) {
   const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
   if (body.variants !== undefined) {
     if (!body.variants || typeof body.variants !== "object" ||
-        !Object.values(body.variants).every(isValidVariant) || Object.keys(body.variants).length !== 4) {
+        !Object.values(body.variants).every(isValidVariant) || !hasVariantNames(Object.keys(body.variants))) {
       return jsonError("Every variant must contain valid questions.");
     }
     patch.variants = body.variants;
