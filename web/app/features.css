@@ -182,3 +182,34 @@
 .student-email { display: block; font-weight: 400; overflow-wrap: anywhere; }
 .result-row > summary .result-name .student-email { padding-left: 14px; }
 .heatmap th .student-email { font-size: .72rem; }
+
+/* Written works: the student's text with mistakes marked. */
+.dict-text { white-space: pre-wrap; line-height: 2; font-size: 1.02rem; margin: 0; overflow-wrap: anywhere; }
+.dict-err { display: inline; padding: 1px 3px; border-radius: 6px; border: 1px solid transparent; background: #fae7e6; color: inherit; font: inherit; line-height: inherit; }
+button.dict-err { cursor: pointer; }
+button.dict-err:focus-visible { outline: 2px solid var(--wine); outline-offset: 1px; }
+.dict-err del { color: var(--wine); text-decoration-thickness: 2px; }
+.dict-err ins { text-decoration: none; color: #1f6b4a; font-weight: 800; margin-left: 2px; }
+.dict-err.dict-punct { background: #fdf0d8; }
+.dict-err.dict-minor { background: transparent; border-color: #c98a1a; border-style: dashed; }
+.dict-err.dict-ignored { background: transparent; border-color: var(--line); opacity: .6; }
+.dict-legend { display: flex; flex-wrap: wrap; gap: 8px 14px; margin: 0; }
+.dict-legend .dict-err { line-height: 1.6; }
+.dict-norms { display: grid; grid-template-columns: auto repeat(3, minmax(0, 1fr)); gap: 8px 10px; align-items: center; }
+.dict-norms input { width: 100%; min-height: 40px; border: 1px solid #dcd1c8; border-radius: 10px; padding: 8px 10px; background: white; }
+.criterion-edit { display: grid; grid-template-columns: minmax(0, 1fr) 110px auto; gap: 10px; align-items: end; }
+.written-answer { min-height: 260px !important; font-size: 1.05rem; line-height: 1.7; }
+.copy-text { white-space: pre-wrap; line-height: 1.8; font-size: 1.05rem; -webkit-user-select: none; user-select: none; }
+@media (max-width: 560px) { .criterion-edit { grid-template-columns: minmax(0, 1fr) 80px; } }
+@media (prefers-color-scheme: dark) {
+  .student-shell .dict-err { background: #3b1a20; }
+  .student-shell .dict-err.dict-punct { background: #3a2e17; }
+  .student-shell .dict-err ins { color: #7fd3a8; }
+  .student-shell .dict-err del { color: #ff8a9b; }
+  .student-shell .dict-err.dict-minor, .student-shell .dict-err.dict-ignored { background: transparent; }
+}
+.print-copy { white-space: pre-wrap; line-height: 1.8; }
+.written-fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
+.written-fieldset > legend { padding: 0; margin-bottom: 8px; }
+.criterion-score { display: grid; grid-template-columns: minmax(0, 1fr) 90px 44px; gap: 10px; align-items: center; max-width: 560px; }
+.criterion-score input { min-height: 40px !important; padding: 8px 10px !important; }

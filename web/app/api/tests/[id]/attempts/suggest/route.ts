@@ -62,24 +62,30 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   };
 
   const items: GradeRequest[] = [];
+  // Sent back so the next press pages past them: they are never suggested.
+  const skipped: string[] = [];
   for (const attempt of attempts) {
     const variant = variantOf(attempt);
     if (!variant) continue;
     const mine: GradeRequest[] = [];
+    let essay = false;
     for (const row of attempt.result?.per_question || []) {
       if (!row?.requires_manual_review) continue;
       const question = variant.questions.find((item: Question) => item.id === row.id);
       if (!question) continue;
+      // Essays are scored by the teacher alone for now; the AI only knows short answers.
+      if (question.type === "essay") { essay = true; break; }
       mine.push({
         key: `${attempt.id}:${row.id}`, question: question.question,
         modelAnswer: question.correct_answer, studentAnswer: answerText(question, attempt.answers?.[row.id]),
       });
     }
     // Whole attempts only: a partly suggested attempt would have no total.
+    if (essay) { skipped.push(attempt.id); continue; }
     if (items.length + mine.length > MAX_ITEMS) break;
     items.push(...mine);
   }
-  if (!items.length) return Response.json({ suggestions: [] });
+  if (!items.length) return Response.json({ suggestions: [], skipped });
 
   const reservation = await reserveGenerationWindow(db);
   if (reservation.status !== "allowed") return quotaErrorResponse(reservation);
@@ -119,5 +125,5 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     if (!possible) return [];
     return [{ attempt_id: attempt.id, questions, percentage: Math.round(total / possible * 10000) / 100 }];
   });
-  return Response.json({ suggestions });
+  return Response.json({ suggestions, skipped });
 }

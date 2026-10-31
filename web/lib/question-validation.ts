@@ -1,11 +1,16 @@
-import type { Question, TestVariant } from "./types";
+import type { Question, TestVariant, WrittenType } from "./types";
+import { DICTATION_MODES, isValidNorms, MAX_REFERENCE_LENGTH, tokenize } from "./dictation";
 
 // Pure validation shared by the API and the teacher editor, which shows the
 // teacher which question still needs fixing before the server would reject it.
 
 export const BLOOM_LEVELS = ["knowledge", "understanding", "application", "higher"] as const;
 
+// The types AI can write. Written works are only ever set by the teacher.
 export const QUESTION_TYPES = ["multiple_choice", "multiple_select", "true_false", "short_answer", "matching", "ordering"] as const;
+export const WRITTEN_TYPES = ["dictation", "essay"] as const satisfies readonly WrittenType[];
+
+export const isWrittenType = (type: unknown): type is WrittenType => (WRITTEN_TYPES as readonly unknown[]).includes(type);
 
 export type QuestionProblem =
   | "invalid"
@@ -22,7 +27,11 @@ export type QuestionProblem =
   | "correct_answers_all"
   | "items_count"
   | "items_empty"
-  | "items_duplicate";
+  | "items_duplicate"
+  | "reference_empty"
+  | "reference_long"
+  | "norms_invalid"
+  | "criteria_invalid";
 
 const key = (value: string) => value.trim().toLocaleLowerCase();
 
@@ -30,10 +39,26 @@ export function questionProblem(value: unknown): QuestionProblem | null {
   if (!value || typeof value !== "object") return "invalid";
   const question = value as Partial<Question>;
   if (typeof question.id !== "string" || !question.id.trim() || typeof question.question !== "string" ||
-    typeof question.correct_answer !== "string" || !(QUESTION_TYPES as readonly string[]).includes(question.type || "") ||
+    typeof question.correct_answer !== "string" || !((QUESTION_TYPES as readonly string[]).includes(question.type || "") || isWrittenType(question.type)) ||
     (question.source_reference !== undefined && (typeof question.source_reference !== "string" || question.source_reference.length > 320)) ||
     (question.bloom_level !== undefined && !(BLOOM_LEVELS as readonly string[]).includes(question.bloom_level))) return "invalid";
   if (!question.question.trim()) return "empty_question";
+
+  if (question.type === "dictation") {
+    if (!(DICTATION_MODES as readonly unknown[]).includes(question.dictation_mode)) return "invalid";
+    if (question.correct_answer.length > MAX_REFERENCE_LENGTH) return "reference_long";
+    if (!tokenize(question.correct_answer, question.dictation_mode!).some(token => token.kind === "word")) return "reference_empty";
+    return question.grade_norms === undefined || isValidNorms(question.grade_norms) ? null : "norms_invalid";
+  }
+
+  if (question.type === "essay") {
+    if (question.min_words !== undefined && (!Number.isInteger(question.min_words) || question.min_words < 0 || question.min_words > 3000)) return "invalid";
+    if (question.correct_answer.length > MAX_REFERENCE_LENGTH) return "reference_long";
+    const criteria = question.criteria;
+    return Array.isArray(criteria) && criteria.length >= 1 && criteria.length <= 10 && criteria.every(item =>
+      item && typeof item.name === "string" && Boolean(item.name.trim()) && item.name.length <= 200 &&
+      Number.isInteger(item.points) && item.points >= 1 && item.points <= 20) ? null : "criteria_invalid";
+  }
 
   if (question.type === "multiple_select") {
     if (!Array.isArray(question.options)) return "invalid";

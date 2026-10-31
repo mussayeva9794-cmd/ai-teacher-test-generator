@@ -1,4 +1,10 @@
-export type QuestionType = "multiple_choice" | "multiple_select" | "true_false" | "short_answer" | "matching" | "ordering";
+import type { DictationMode, GradeNorms } from "./dictation";
+
+export type QuestionType = "multiple_choice" | "multiple_select" | "true_false" | "short_answer" | "matching" | "ordering" | WrittenType;
+
+// Written works the teacher sets by hand, without AI: a dictation (also a word
+// dictation or copying) checked against correct_answer, and an essay the teacher scores.
+export type WrittenType = "dictation" | "essay";
 
 // Levels of thinking (Bloom), as used in Kazakhstan's summative assessment tables.
 export type BloomLevel = "knowledge" | "understanding" | "application" | "higher";
@@ -19,7 +25,15 @@ export type Question = {
   skill_tag: string;
   source_reference?: string;
   bloom_level?: BloomLevel;
+  dictation_mode?: DictationMode;
+  // Mistakes allowed per grade; the mode's school norms when missing.
+  grade_norms?: GradeNorms;
+  // Essay: what the teacher scores and the most points for each.
+  criteria?: EssayCriterion[];
+  min_words?: number;
 };
+
+export type EssayCriterion = { name: string; points: number };
 
 /** One row of a СОР/СОЧ table: what a task checks and how it is scored. */
 export type RubricRow = { task: number; criterion: string; descriptor: string; points: number };
