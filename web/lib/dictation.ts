@@ -214,7 +214,46 @@ export function compareTexts(reference: string, answer: string, mode: DictationM
     previous = [i + 1, j + 1];
   }
   flush(previous, [expected.length, given.length]);
-  return { ops, errors };
+  return mode === "words" ? forgiveMovedWords(ops, errors) : { ops, errors };
+}
+
+// A word dictation checks spelling, not order: a right word written in another
+// place is not "missing" plus "extra", so the pair is dropped and the word counts as right.
+function forgiveMovedWords(ops: Op[], errors: DictationError[]): { ops: Op[]; errors: DictationError[] } {
+  const extras = new Map<string, number[]>();
+  ops.forEach((op, i) => { if (op.op === "extra") extras.set(op.given[0].key, [...(extras.get(op.given[0].key) ?? []), i]); });
+  const dropped = new Set<number>();
+  const moved = new Set<number>();
+  const swapped = new Map<number, Token>();
+  ops.forEach((op, i) => {
+    const at = op.op === "missing" ? extras.get(op.expected[0].key)?.shift() : undefined;
+    if (at !== undefined) { dropped.add(i); moved.add(at); }
+  });
+  // What is left over: a misspelt word written in another place is one mistake, as in its own place.
+  // Skipped for a runaway answer, where it would compare every word with every word.
+  const left = (kind: Op["op"]) => ops.filter((op, i) => op.op === kind && !dropped.has(i) && !moved.has(i)).length;
+  if (left("missing") * left("extra") <= 40000) ops.forEach((op, i) => {
+    if (op.op !== "missing" || dropped.has(i)) return;
+    const at = ops.findIndex((other, j) => other.op === "extra" && !moved.has(j) && similar(op.expected[0], other.given[0]));
+    if (at >= 0) { dropped.add(i); moved.add(at); swapped.set(at, op.expected[0]); }
+  });
+  if (!dropped.size) return { ops, errors };
+  const kept: DictationError[] = [];
+  const nextOps: Op[] = [];
+  ops.forEach((op, i) => {
+    if (dropped.has(i)) return;
+    if (op.op === "same") { nextOps.push(op); return; }
+    const right = swapped.get(i);
+    if (moved.has(i) && op.op === "extra" && !right) { nextOps.push({ op: "same", given: op.given[0] }); return; }
+    if (right && op.op === "extra") {
+      kept.push({ id: kept.length, kind: "spelling", expected: right.text, given: op.given[0].text, repeat: false });
+      nextOps.push({ op: "wrong", expected: [right], given: op.given, error: kept.length - 1 });
+      return;
+    }
+    kept.push({ ...errors[op.error], id: kept.length });
+    nextOps.push({ ...op, error: kept.length - 1 });
+  });
+  return { ops: nextOps, errors: kept };
 }
 
 export function markOf(error: DictationError, marks: Marks | undefined): MarkStatus {

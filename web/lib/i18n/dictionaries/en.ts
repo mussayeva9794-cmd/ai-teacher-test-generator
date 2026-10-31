@@ -176,6 +176,7 @@ export const en: Dictionary = {
     typeMatching: "Matching",
     typeMultipleSelect: "Several correct",
     typeOrdering: "Ordering",
+    typeMixed: "Mixed (different types)",
     typeDictation: "Dictation",
     typeEssay: "Essay",
     format: "Assessment format",

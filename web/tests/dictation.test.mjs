@@ -77,6 +77,14 @@ test("a word dictation ignores punctuation and letter case", () => {
   ]);
 });
 
+test("a word dictation does not punish a right word written out of order", () => {
+  const check = compareTexts("берёза\nкарандаш\nсобака", "собака\nберёза\nкарандош", "words");
+  assert.deepEqual(check.errors.map(({ id, expected, given }) => ({ id, expected, given })), [{ id: 0, expected: "карандаш", given: "карандош" }]);
+  assert.ok(check.ops.every(op => op.op === "same" || op.error === 0));
+  // A dictation still keeps the order.
+  assert.equal(errorsOf("Пришла осень.", "Осень пришла.").length > 0, true);
+});
+
 test("teacher marks: ignored mistakes do not count, two minor ones make one", () => {
   const reference = "Я знаю, что он придёт, и мы пойдём.";
   const answer = "Я знаю что он придёт и мы пойдём.";

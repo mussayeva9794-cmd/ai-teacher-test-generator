@@ -174,6 +174,7 @@ export const kk: Dictionary = {
     typeMatching: "Сәйкестендіру",
     typeMultipleSelect: "Бірнеше дұрыс жауап",
     typeOrdering: "Реттілік",
+    typeMixed: "Аралас (әртүрлі түрлер)",
     typeDictation: "Диктант",
     typeEssay: "Эссе",
     format: "Жұмыс форматы",

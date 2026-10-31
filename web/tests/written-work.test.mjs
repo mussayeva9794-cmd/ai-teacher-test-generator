@@ -144,11 +144,12 @@ test("a dictation in a work still waiting for an essay score keeps the total ope
   assert.equal(updates[0].result.per_question[0].dictation.grade, 4);
 });
 
-function setupCreate() {
+function setupCreate(storedVariants = { "Variant A": {} }) {
   const inserts = [];
   globalThis.writtenMocks = {
     actor: { id: "teacher-1", role: "teacher", accessToken: "token" },
     userDb: { from: () => ({
+      select: () => ({ eq() { return this; }, maybeSingle: async () => ({ data: { variants: storedVariants }, error: null }) }),
       insert: (row) => { inserts.push(row); return { select: () => ({ single: async () => ({ data: { id: "new-test" }, error: null }) }) }; },
       update: (patch) => { inserts.push(patch); return { eq() { return this; }, select() { return this; }, maybeSingle: async () => ({ data: { id: "t", status: "draft" }, error: null }) }; },
     }) },
@@ -194,4 +195,7 @@ test("a saved test keeps either one written variant or all four", async () => {
   assert.equal((await patch({ "Variant A": dictation, "Variant B": dictation })).status, 400);
   assert.equal((await patch({ "Variant A": dictation, "Variant B": dictation, "Variant C": dictation, "__proto__": dictation })).status, 400);
   assert.equal(inserts.length, 2);
+  // A generated test cannot be cut down to one variant.
+  setupCreate({ "Variant A": {}, "Variant B": {}, "Variant C": {}, "Variant D": {} });
+  assert.equal((await patch({ "Variant A": dictation })).status, 400);
 });

@@ -72,3 +72,27 @@ test("an AI grading reply that skips answers is a failed call, so quota is refun
     await assert.rejects(() => suggestGrades(items, "russian"), (error) => error.reason === "invalid_response");
   });
 });
+
+test("a mixed test keeps each question's own type and asks for all of them", async () => {
+  const { generateVariants } = await import("../lib/groq.ts");
+  const questions = [
+    { id: "q1", type: "multiple_choice", question: "Что нужно растению?", options: ["Свет", "Шум", "Песок", "Лёд"], correct_answers: [], items: [], pairs: [],
+      correct_answer: "Свет", explanation: "Свет.", skill_tag: "фотосинтез", source_reference: "", bloom_level: "knowledge" },
+    { id: "q2", type: "true_false", question: "Листья выделяют кислород.", options: [], correct_answers: [], items: [], pairs: [],
+      correct_answer: "true", explanation: "Да.", skill_tag: "фотосинтез", source_reference: "", bloom_level: "knowledge" },
+    { id: "q3", type: "matching", question: "Сопоставьте.", options: [], correct_answers: [], items: [], pairs: [{ left: "Хлорофилл", right: "Пигмент" }, { left: "Устьица", right: "Газообмен" }],
+      correct_answer: "", explanation: "Так.", skill_tag: "фотосинтез", source_reference: "", bloom_level: "understanding" },
+  ];
+  await withFetch((body) => {
+    const schema = body.response_format.json_schema.schema.properties.questions.items;
+    assert.ok(schema.properties.type.enum.length >= 6 && schema.properties.pairs && schema.properties.items);
+    return Response.json({ choices: [{ message: { content: JSON.stringify({ title: "Тест", instructions: "Ответьте.", questions }) } }] });
+  }, async () => {
+    const variants = await generateVariants({ ...input, count: 3, type: "mixed" });
+    const got = variants["Variant A"].questions;
+    assert.deepEqual(got.map((q) => q.type), ["multiple_choice", "true_false", "matching"]);
+    assert.equal(got[1].correct_answer, "Верно");
+    assert.equal(got[0].pairs, undefined);
+    assert.equal(got[2].pairs.length, 2);
+  });
+});

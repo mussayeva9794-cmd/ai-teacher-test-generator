@@ -31,6 +31,13 @@ export async function PATCH(request: NextRequest, { params }: Context) {
         !Object.values(body.variants).every(isValidVariant) || !hasVariantNames(Object.keys(body.variants))) {
       return jsonError("Every variant must contain valid questions.");
     }
+    // One variant only for a work that already has one: a generated test must not lose B–D.
+    if (Object.keys(body.variants).length === 1) {
+      const { data: stored, error } = await userClient(actor.accessToken).from("web_tests").select("variants")
+        .eq("id", id).eq("owner_id", actor.id).maybeSingle();
+      if (error) return jsonError("Test could not be updated.", 503);
+      if (stored && Object.keys(stored.variants || {}).length !== 1) return jsonError("Every variant must contain valid questions.");
+    }
     patch.variants = body.variants;
   }
   if (body.status !== undefined) {

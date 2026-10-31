@@ -1,13 +1,14 @@
 import type { Assessment, BloomLevel, Question, QuestionType, RubricRow, TestSource, TestVariant } from "./types";
 import { isValidVariant } from "./assessment";
-import { BLOOM_LEVELS } from "./question-validation";
+import { BLOOM_LEVELS, QUESTION_TYPES } from "./question-validation";
 import { networkErrorCode } from "./network-error";
 import { TRUE_FALSE_OPTIONS } from "./true-false";
 
 export type GenerateInput = {
   topic: string;
   count: number;
-  type: QuestionType;
+  // "mixed": the model picks a type for each question.
+  type: QuestionType | "mixed";
   language: "russian" | "kazakh" | "english";
   gradeLevel: string;
   objective: string;
@@ -51,9 +52,10 @@ function generationAttempts(): number {
 }
 
 function responseSchema(input: GenerateInput) {
+  const mixed = input.type === "mixed";
   const questionProperties: Record<string, unknown> = {
     id: { type: "string" },
-    type: { type: "string", enum: [input.type] },
+    type: { type: "string", enum: mixed ? [...QUESTION_TYPES] : [input.type] },
     question: { type: "string" },
     correct_answer: { type: "string" },
     explanation: { type: "string" },
@@ -61,19 +63,19 @@ function responseSchema(input: GenerateInput) {
     source_reference: { type: "string" },
     bloom_level: { type: "string", enum: [...BLOOM_LEVELS] },
   };
-  if (input.type === "multiple_choice" || input.type === "true_false" || input.type === "multiple_select") {
+  if (mixed || input.type === "multiple_choice" || input.type === "true_false" || input.type === "multiple_select") {
     questionProperties.options = {
       type: "array",
       items: { type: "string" },
     };
   }
-  if (input.type === "multiple_select") {
+  if (mixed || input.type === "multiple_select") {
     questionProperties.correct_answers = { type: "array", items: { type: "string" } };
   }
-  if (input.type === "ordering") {
+  if (mixed || input.type === "ordering") {
     questionProperties.items = { type: "array", items: { type: "string" } };
   }
-  if (input.type === "matching") {
+  if (mixed || input.type === "matching") {
     questionProperties.pairs = {
       type: "array",
       items: {
@@ -125,10 +127,13 @@ function toQuestion(
   index: number,
 ): Question {
   const source = value && typeof value === "object" ? value as Record<string, unknown> : {};
+  // An unknown type falls back to multiple choice, which then fails validation without options and is retried.
+  const type: QuestionType = input.type !== "mixed" ? input.type
+    : (QUESTION_TYPES as readonly unknown[]).includes(source.type) ? source.type as QuestionType : "multiple_choice";
   const rawOptions = Array.isArray(source.options)
     ? source.options.map((option) => String(option).trim()).filter(Boolean)
     : [];
-  const options = input.type === "true_false"
+  const options = type === "true_false"
     ? [...TRUE_FALSE_OPTIONS[input.language]]
     : [...new Set(rawOptions)];
   const listOf = (raw: unknown) => Array.isArray(raw) ? [...new Set(raw.map((item) => String(item).trim()).filter(Boolean))] : [];
@@ -136,24 +141,24 @@ function toQuestion(
   const correctSet = new Set(listOf(source.correct_answers).map((item) => item.toLocaleLowerCase()));
   const correctAnswers = options.filter((option) => correctSet.has(option.toLocaleLowerCase()));
   const rawAnswer = String(source.correct_answer || "").trim();
-  const correctAnswer = input.type === "true_false"
+  const correctAnswer = type === "true_false"
     ? canonicalTrueFalse(rawAnswer, input.language)
     : rawAnswer;
 
   return {
     id: `${difficulty}-${index + 1}`,
-    type: input.type,
+    type,
     question: String(source.question || "").trim(),
-    options: input.type === "multiple_choice" || input.type === "true_false" || input.type === "multiple_select" ? options : undefined,
-    correct_answers: input.type === "multiple_select" ? correctAnswers : undefined,
-    items: input.type === "ordering" ? listOf(source.items) : undefined,
-    pairs: Array.isArray(source.pairs)
+    options: type === "multiple_choice" || type === "true_false" || type === "multiple_select" ? options : undefined,
+    correct_answers: type === "multiple_select" ? correctAnswers : undefined,
+    items: type === "ordering" ? listOf(source.items) : undefined,
+    pairs: type === "matching" && Array.isArray(source.pairs)
       ? source.pairs.map((pair) => {
           const item = pair && typeof pair === "object" ? pair as Record<string, unknown> : {};
           return { left: String(item.left || "").trim(), right: String(item.right || "").trim() };
         }).filter((pair) => pair.left && pair.right)
       : undefined,
-    correct_answer: input.type === "matching" || input.type === "multiple_select" || input.type === "ordering" ? "" : correctAnswer,
+    correct_answer: type === "matching" || type === "multiple_select" || type === "ordering" ? "" : correctAnswer,
     explanation: String(source.explanation || "").trim(),
     skill_tag: String(source.skill_tag || input.topic).trim(),
     source_reference: String(source.source_reference || "").trim().slice(0, 320) || undefined,
@@ -162,7 +167,8 @@ function toQuestion(
 }
 
 /** The answer-key checks the model runs before answering, per question type. */
-function selfCheck(type: QuestionType) {
+function selfCheck(type: QuestionType | "mixed"): string {
+  if (type === "mixed") return QUESTION_TYPES.map((item) => `${item}: ${selfCheck(item)}`).join("\n");
   if (type === "multiple_select") {
     return `every option listed in correct_answers is correct, every other option is clearly wrong, at least one option is wrong,
 and the explanation says why each correct option is right.`;
@@ -264,7 +270,10 @@ async function groqJson(call: GroqCall): Promise<Record<string, unknown>> {
 }
 
 async function requestVariant(input: GenerateInput, difficulty: string, model: string): Promise<TestVariant> {
-  const prompt = `Create ${input.count} UNIQUE ${input.type} school questions on "${input.topic}".
+  const kind = input.type === "mixed"
+    ? `mixed-type (use at least ${Math.min(3, input.count)} different types from ${QUESTION_TYPES.join(", ")}; set each question's type; fill only the fields its type uses and leave options, correct_answers, items and pairs as empty arrays otherwise)`
+    : input.type;
+  const prompt = `Create ${input.count} UNIQUE ${kind} school questions on "${input.topic}".
 Language: ${input.language}. Grade: ${input.gradeLevel || "school"}. Difficulty: ${difficulty}.
 Learning objective: ${input.objective || "understand and apply the topic"}.
 ${bloomLine(input)}

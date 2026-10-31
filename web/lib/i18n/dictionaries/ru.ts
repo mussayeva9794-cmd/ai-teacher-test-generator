@@ -180,6 +180,7 @@ export const ru = {
     typeMatching: "Соответствие",
     typeMultipleSelect: "Несколько правильных",
     typeOrdering: "Порядок",
+    typeMixed: "Смешанный (разные типы)",
     typeDictation: "Диктант",
     typeEssay: "Эссе",
     format: "Формат работы",
