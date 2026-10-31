@@ -2,6 +2,7 @@
 
 import type { Question } from "@/lib/types";
 import { MAX_WRITTEN_ANSWER_LENGTH } from "@/lib/dictation";
+import { isWrittenType } from "@/lib/question-validation";
 import { useT } from "../../i18n-provider";
 
 export type StudentQuestion = Omit<Question, "correct_answer" | "explanation"> & { match_options?: string[]; copy_text?: string };
@@ -39,7 +40,7 @@ export function AnswerInput({ question: q, answer, number, onAnswer }: Props) {
     const used = new Set(Object.values(given).filter(Boolean));
     return <div className="stack match-grid" role="group" aria-label={st.answerTo(number)}>{q.pairs?.map((pair, i) => <label className="match-row" key={i}><span className="match-left">{pair.left}</span><select value={given[pair.left] || ""} onChange={e => set(pair.left, e.target.value)}><option value="">{st.matchingChoose}</option>{(q.match_options || []).map(option => <option key={option} value={option}>{used.has(option) && given[pair.left] !== option ? `${option} ✓` : option}</option>)}</select></label>)}</div>;
   }
-  if (q.type === "dictation" || q.type === "essay") {
+  if (isWrittenType(q.type)) {
     const text = String(answer || "");
     const w = t.written;
     // The keyboard must not fix spelling for the student, and nothing can be pasted in.

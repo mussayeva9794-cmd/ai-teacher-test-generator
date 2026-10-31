@@ -305,6 +305,9 @@ Rewrite any question that fails a check.`;
   if (!isValidVariant(variant) || variant.questions.length !== input.count || variant.questions.some((q) => !q.question)) {
     throw new GroqGenerationError("invalid_response", "AI returned an incomplete test.");
   }
+  if (input.type === "mixed" && new Set(variant.questions.map((q) => q.type)).size < Math.min(3, input.count)) {
+    throw new GroqGenerationError("invalid_response", "AI returned a test of one question type.");
+  }
   return variant;
 }
 

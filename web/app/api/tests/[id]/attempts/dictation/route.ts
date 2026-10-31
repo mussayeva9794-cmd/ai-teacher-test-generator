@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { NextRequest } from "next/server";
 import { actorFromRequest, jsonError } from "@/lib/auth";
 import { percentageOf } from "@/lib/assessment";
@@ -52,9 +53,15 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     : percentageOf(nextRows.map(row => ({ score: typeof row.score === "number" ? row.score : 0, ...(typeof row.points === "number" ? { points: row.points } : {}) })));
   const totalScore = Math.round(nextRows.reduce((sum, row) => sum + (typeof row.score === "number" ? row.score : 0), 0) * 100) / 100;
 
-  const { error } = await admin.from("web_attempts").update({
-    percentage, result: { ...result, per_question: nextRows, total_score: totalScore },
-  }).eq("id", attempt.id).eq("test_id", testId);
+  // Saved only if no other save reached the attempt since it was read: a hand-set
+  // total or another dictation's marks would otherwise be overwritten.
+  const version = typeof result.marks_version === "string" ? result.marks_version : null;
+  let update = admin.from("web_attempts").update({
+    percentage, result: { ...result, per_question: nextRows, total_score: totalScore, marks_version: randomUUID() },
+  }).eq("id", attempt.id).eq("test_id", testId).is("result->>manually_reviewed_by", null);
+  update = version ? update.eq("result->>marks_version", version) : update.is("result->>marks_version", null);
+  const { data: saved, error } = await update.select("id");
   if (error) return jsonError("Could not save the dictation marks.", 503);
+  if (!saved?.length) return jsonError("This work changed while you were marking it. Refresh and try again.", 409);
   return Response.json({ percentage, dictation: graded.record });
 }

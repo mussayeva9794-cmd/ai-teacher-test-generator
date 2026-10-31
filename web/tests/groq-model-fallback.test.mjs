@@ -96,3 +96,12 @@ test("a mixed test keeps each question's own type and asks for all of them", asy
     assert.equal(got[2].pairs.length, 2);
   });
 });
+
+test("a mixed test of one question type is sent back to the AI", async () => {
+  const { generateVariants, GroqGenerationError } = await import("../lib/groq.ts");
+  let calls = 0;
+  await withFetch(() => { calls += 1; return Response.json(variantPayload()); }, async () => {
+    await assert.rejects(generateVariants({ ...input, type: "mixed" }), (error) => error instanceof GroqGenerationError && error.reason === "invalid_response");
+    assert.ok(calls > 1, "retried before giving up");
+  });
+});

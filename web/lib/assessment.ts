@@ -158,7 +158,8 @@ export function answerReview(variant: TestVariant, answers: Record<string, unkno
       id: question.id,
       question: question.question,
       given: answerText(question, answer),
-      correct: correctText(question),
+      // An essay keeps the teacher's private notes in correct_answer.
+      correct: question.type === "essay" ? "" : correctText(question),
       explanation: question.explanation || "",
       score,
       // The teacher already set the total by hand; this answer was part of it.

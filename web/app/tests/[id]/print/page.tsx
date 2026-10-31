@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { api } from "@/lib/client";
 import type { Question, TestRow, TestVariant } from "@/lib/types";
+import { isWrittenType } from "@/lib/question-validation";
 import { dictionaries, type Dictionary } from "@/lib/i18n/dictionaries";
 import { serverMessage } from "@/lib/i18n/server-message";
 import { variantLabel } from "@/lib/labels";
@@ -61,7 +62,7 @@ function Sheet({ title, name, variant, s }: { title: string; name: string; varia
       {question.type === "short_answer" && <div className="print-lines"><i /><i /></div>}
       {question.type === "dictation" && question.dictation_mode === "copy" && <p className="print-copy">{question.correct_answer}</p>}
       {question.type === "essay" && question.criteria?.length ? <p className="print-hint">{question.criteria.map(item => `${item.name} (${s.written.points(item.points)})`).join(" · ")}</p> : null}
-      {(question.type === "dictation" || question.type === "essay") && <div className="print-lines">{Array.from({ length: question.type === "essay" ? 18 : 12 }, (_, i) => <i key={i} />)}</div>}
+      {isWrittenType(question.type) && <div className="print-lines">{Array.from({ length: question.type === "essay" ? 18 : 12 }, (_, i) => <i key={i} />)}</div>}
     </li>)}</ol>
   </section>;
 }

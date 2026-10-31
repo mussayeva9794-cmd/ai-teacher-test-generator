@@ -736,6 +736,7 @@ export const kk: Dictionary = {
     "The total of this work was already set by hand.": "Бұл жұмыстың қорытындысы қолмен қойылған.",
     "Dictation not found in this work.": "Бұл жұмыста диктант жоқ.",
     "Could not save the dictation marks.": "Диктант бағасын сақтау мүмкін болмады.",
+    "This work changed while you were marking it. Refresh and try again.": "Сіз тексеріп жатқанда жұмыс өзгерді. Бетті жаңартып, қайталап көріңіз.",
     "Student account required.": "Оқушы аккаунты қажет.",
     "Could not load your tests.": "Тесттеріңізді жүктеу мүмкін болмады.",
     "Add up to 100 students with valid emails and names.": "Дұрыс email және аты-жөні бар 100-ден аспайтын оқушы қосыңыз.",

@@ -94,7 +94,7 @@ function setupMarks({ result, answers }) {
     userDb: { from: () => ({ select: () => ({ eq() { return this; }, maybeSingle: async () => ({ data: { id: "test-1" }, error: null }) }) }) },
     adminDb: { from: () => ({
       select: () => ({ eq() { return this; }, maybeSingle: async () => ({ data: { id: "attempt-1", answers, result }, error: null }) }),
-      update: (payload) => { updates.push(payload); return { eq() { return this; }, then(resolve) { resolve({ error: null }); } }; },
+      update: (payload) => { updates.push(payload); return { eq() { return this; }, is() { return this; }, select: async () => ({ data: globalThis.writtenMocks.changed ? [] : [{ id: "attempt-1" }], error: null }) }; },
     }) },
   };
   return updates;
@@ -115,6 +115,13 @@ test("the teacher's marks regrade the dictation on the server", async () => {
   assert.equal(row.dictation.grade, 5);
   assert.deepEqual(row.dictation.marks, { 0: "ignored", 1: "ignored" });
   assert.equal(row.dictation.reference, reference, "the stored text is kept, not taken from the browser");
+});
+
+test("dictation marks are not saved over a change made since they were read", async () => {
+  const answers = { "written-dictation": "Я знаю что он придёт и мы пойдём в лес." };
+  setupMarks({ answers, result: grade(dictation, answers) });
+  globalThis.writtenMocks.changed = true;
+  assert.equal((await markDictation(marksRequest({ 0: "ignored" }), context)).status, 409);
 });
 
 test("dictation marks are refused when invalid, for a hand-set total, or without a dictation", async () => {
@@ -198,4 +205,12 @@ test("a saved test keeps either one written variant or all four", async () => {
   // A generated test cannot be cut down to one variant.
   setupCreate({ "Variant A": {}, "Variant B": {}, "Variant C": {}, "Variant D": {} });
   assert.equal((await patch({ "Variant A": dictation })).status, 400);
+});
+
+test("an essay's private teacher notes never reach the student's review", () => {
+  const variant = { ...essay, questions: [{ ...essay.questions[0], correct_answer: "Заметки учителя" }] };
+  const answers = { "written-essay": "Мой текст." };
+  const [item] = answerReview(variant, answers, grade(variant, answers));
+  assert.equal(item.correct, "");
+  assert.doesNotMatch(JSON.stringify(item), /Заметки учителя/);
 });

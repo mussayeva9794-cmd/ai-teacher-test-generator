@@ -742,6 +742,7 @@ export const ru = {
     "The total of this work was already set by hand.": "Итог этой работы уже выставлен вручную.",
     "Dictation not found in this work.": "В этой работе нет диктанта.",
     "Could not save the dictation marks.": "Не удалось сохранить оценку диктанта.",
+    "This work changed while you were marking it. Refresh and try again.": "Работа изменилась, пока вы её проверяли. Обновите страницу и попробуйте снова.",
     "Student account required.": "Нужен аккаунт ученика.",
     "Could not load your tests.": "Не удалось загрузить ваши тесты.",
     "Add up to 100 students with valid emails and names.": "Добавьте не более 100 учеников с корректными email и ФИО.",

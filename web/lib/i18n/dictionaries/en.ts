@@ -737,6 +737,7 @@ export const en: Dictionary = {
     "The total of this work was already set by hand.": "The total of this work was already set by hand.",
     "Dictation not found in this work.": "This work has no dictation.",
     "Could not save the dictation marks.": "Could not save the dictation grade.",
+    "This work changed while you were marking it. Refresh and try again.": "This work changed while you were marking it. Refresh and try again.",
     "Student account required.": "Student account required.",
     "Could not load your tests.": "Could not load your tests.",
     "Add up to 100 students with valid emails and names.": "Add up to 100 students with valid emails and names.",

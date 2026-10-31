@@ -1,7 +1,7 @@
 "use client";
 
 import type { BloomLevel, Question, QuestionType } from "@/lib/types";
-import { BLOOM_LEVELS, questionProblem } from "@/lib/question-validation";
+import { BLOOM_LEVELS, isWrittenType, questionProblem } from "@/lib/question-validation";
 import type { Dictionary } from "@/lib/i18n/dictionaries";
 import { TRUE_FALSE_OPTIONS } from "@/lib/true-false";
 import { DEFAULT_NORMS, DICTATION_MODES, MAX_REFERENCE_LENGTH, type DictationMode, type GradeNorms } from "@/lib/dictation";
@@ -21,7 +21,7 @@ type Props = {
 
 /** A blank question of the chosen type for the "add question" action. */
 export function blankQuestion(type: QuestionType, language: string, id: string): Question {
-  if (type === "dictation" || type === "essay") {
+  if (isWrittenType(type)) {
     const lang = language === "kazakh" || language === "english" ? language : "russian";
     return { ...writtenVariant(type, lang, "", "").questions[0], id };
   }
@@ -42,7 +42,7 @@ export function QuestionEditor({ t, question, index, canDelete, regenerating, di
   const problem = questionProblem(question);
   const editableOptions = question.type === "multiple_choice" || question.type === "multiple_select";
   const minOptions = question.type === "multiple_select" ? 3 : 2;
-  const written = question.type === "dictation" || question.type === "essay";
+  const written = isWrittenType(question.type);
   return <div className={problem ? "panel stack question-editor has-problem" : "panel stack question-editor"}>
     <div className="row"><span className="eyebrow">{p.question(index + 1)}</span><div className="row editor-actions"><span className="pill">{question.skill_tag || t.create[TYPE_LABEL[question.type]]}</span>{!written && <button type="button" className="btn ghost" disabled={disabled || regenerating} onClick={onRegenerate}>{regenerating ? p.regenerating : p.regenerate}</button>}<button type="button" className="btn ghost danger" disabled={disabled || !canDelete} onClick={onDelete}>{p.deleteQuestion}</button></div></div>
     {problem && <p className="error small" role="status">{p.problems[problem]}</p>}

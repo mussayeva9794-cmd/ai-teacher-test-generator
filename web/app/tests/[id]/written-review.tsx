@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { api } from "@/lib/client";
 import { checkDictation, readDictationRecord, schoolGrade, type Marks } from "@/lib/dictation";
 import type { Question } from "@/lib/types";
@@ -21,8 +21,8 @@ export function DictationCheck({ t, testId, attemptId, questionId, record: store
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
-  if (!record) return null;
-  const check = checkDictation(record.reference, answer, record.mode, record.norms, marks);
+  const check = useMemo(() => record && checkDictation(record.reference, answer, record.mode, record.norms, marks), [stored, answer, marks]); // eslint-disable-line react-hooks/exhaustive-deps
+  if (!record || !check) return null;
   const dirty = !sameMarks(marks, saved);
   async function save() {
     setBusy(true); setError(""); setMessage("");
