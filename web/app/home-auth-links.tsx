@@ -42,19 +42,19 @@ export function HomeAuthLinks({ placement }: { placement: "nav" | "hero" }) {
   if (who === "teacher") {
     return placement === "nav"
       ? <Link className="btn primary" href="/dashboard">{t.common.dashboard}</Link>
-      : <Link className="btn primary" href="/dashboard">{t.home.openDashboard} <span aria-hidden="true">↗</span></Link>;
+      : <Link className="btn primary" href="/dashboard">{t.home.openDashboard}</Link>;
   }
   if (who === "student") {
     return placement === "nav" ? <>
       <Link className="btn primary" href="/my">{t.common.myTests}</Link>
       <button className="btn ghost" onClick={() => void signOut()}>{t.nav.signOut}</button>
-    </> : <Link className="btn primary" href="/my">{t.common.myTests} <span aria-hidden="true">↗</span></Link>;
+    </> : <Link className="btn primary" href="/my">{t.common.myTests}</Link>;
   }
   return placement === "nav" ? <>
     <Link className="btn ghost" href="/login">{t.common.signIn}</Link>
     <Link className="btn primary" href="/login?mode=signup">{t.common.start}</Link>
   </> : <>
-    <Link className="btn primary" href="/login?mode=signup">{t.home.startWork} <span aria-hidden="true">↗</span></Link>
+    <Link className="btn primary" href="/login?mode=signup">{t.home.startWork}</Link>
     <Link className="btn" href="/login">{t.home.haveAccount}</Link>
   </>;
 }

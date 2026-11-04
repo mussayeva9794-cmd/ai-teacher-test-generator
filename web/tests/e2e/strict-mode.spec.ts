@@ -94,7 +94,7 @@ test("strict mode watermarks the page, blocks the clipboard and auto-submits aft
   expect(copyBlocked).toBe(true);
   await expect.poll(() => mock.events.filter(event => event.kind === "copy").length).toBe(1);
 
-  await page.getByRole("button", { name: "Далее →" }).click();
+  await page.getByRole("button", { name: "Далее" }).click();
   const answer = page.getByPlaceholder("Введите ответ");
   await answer.fill("Астана");
   const pasteBlocked = await answer.evaluate(element => {
@@ -128,7 +128,7 @@ test("per-question timer advances on its own, hides the back button and submits 
 
   await expect(page.getByText("Вопрос 1 из 2")).toBeVisible();
   await expect(page.getByText(/На вопрос: 0:1\d/)).toBeVisible();
-  await expect(page.getByRole("button", { name: "← Назад" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Назад" })).toHaveCount(0);
   await expect(page.getByText(/Уходов:/)).toHaveCount(0);
 
   await advance(16_000);

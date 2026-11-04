@@ -1,4 +1,9 @@
 import type { Question } from "./types";
+import { checkDictation, DEFAULT_NORMS } from "./dictation";
+
+export const dictationNorms = (question: Question) => question.grade_norms ?? DEFAULT_NORMS[question.dictation_mode ?? "dictation"];
+
+const hasText = (answer: unknown) => typeof answer === "string" && Boolean(answer.trim());
 
 // Per-question scoring shared by the server grader, the student review and
 // the class analytics.
@@ -8,6 +13,9 @@ export function normalized(value: unknown): string {
 }
 
 export function questionScore(question: Question, answer: unknown): number {
+  if (question.type === "dictation") return checkDictation(question.correct_answer, answer, question.dictation_mode ?? "dictation", dictationNorms(question)).score;
+  // Only the teacher scores an essay; an empty one is worth nothing.
+  if (question.type === "essay") return 0;
   if (question.type === "multiple_select") {
     const correct = new Set((question.correct_answers || []).map(normalized));
     if (!Array.isArray(answer) || !correct.size) return 0;
@@ -38,6 +46,7 @@ export function questionScore(question: Question, answer: unknown): number {
 
 /** A written answer that is not an exact match: only the teacher can score it. */
 export function needsTeacher(question: Question, answer: unknown): boolean {
+  if (question.type === "essay") return hasText(answer);
   return question.type === "short_answer" && typeof answer === "string" && Boolean(answer.trim()) &&
     normalized(answer) !== normalized(question.correct_answer);
 }

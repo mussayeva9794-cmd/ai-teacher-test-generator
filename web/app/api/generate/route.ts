@@ -23,7 +23,7 @@ export async function POST(request: NextRequest) {
   if (!topic || topic.length > 180 || !Number.isInteger(count) || count < 1 || count > 20) {
     return jsonError("Enter a topic and choose 1–20 questions.");
   }
-  if (!body.type || !(QUESTION_TYPES as readonly string[]).includes(body.type)) {
+  if (!body.type || !(body.type === "mixed" || (QUESTION_TYPES as readonly string[]).includes(body.type))) {
     return jsonError("Choose a supported question type.");
   }
   if (!body.language || !["russian", "kazakh", "english"].includes(body.language)) {

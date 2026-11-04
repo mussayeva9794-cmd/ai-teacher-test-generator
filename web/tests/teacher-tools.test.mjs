@@ -22,7 +22,8 @@ test("question problems name what the teacher has to fix", () => {
   assert.equal(questionProblem({ ...mc, type: "matching", options: undefined, correct_answer: "", pairs }), null);
   assert.equal(questionProblem({ ...mc, type: "matching", options: undefined, correct_answer: "", pairs: [pairs[0]] }), "pairs_count");
   assert.equal(questionProblem({ ...mc, type: "matching", options: undefined, correct_answer: "", pairs: [pairs[0], { left: "A", right: "3" }] }), "pairs_duplicate");
-  assert.equal(questionProblem({ ...mc, type: "essay" }), "invalid");
+  assert.equal(questionProblem({ ...mc, type: "drawing" }), "invalid");
+  assert.equal(questionProblem({ ...mc, type: "essay" }), "criteria_invalid");
 });
 
 test("a variant with two questions sharing an id is rejected", () => {
