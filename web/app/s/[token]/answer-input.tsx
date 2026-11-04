@@ -32,7 +32,7 @@ export function AnswerInput({ question: q, answer, number, onAnswer }: Props) {
     // Until the student moves something the shown order is the starting order.
     const order = Array.isArray(answer) && answer.length === q.items?.length ? answer as string[] : q.items || [];
     const move = (from: number, to: number) => { const next = [...order]; [next[from], next[to]] = [next[to], next[from]]; onAnswer(next); };
-    return <div className="stack" role="group" aria-label={st.answerTo(number)}><p className="muted small" style={{ margin: 0 }}>{st.orderHint}</p><ol className="order-list">{order.map((item, i) => <li key={item}><span>{item}</span><button type="button" className="btn ghost" aria-label={st.moveUp(item)} disabled={i === 0} onClick={() => move(i, i - 1)}>↑</button><button type="button" className="btn ghost" aria-label={st.moveDown(item)} disabled={i === order.length - 1} onClick={() => move(i, i + 1)}>↓</button></li>)}</ol></div>;
+    return <div className="stack" role="group" aria-label={st.answerTo(number)}><p className="muted small" style={{ margin: 0 }}>{st.orderHint}</p><ol className="order-list">{order.map((item, i) => <li key={item}><span>{item}</span><button type="button" className="btn ghost" aria-label={st.moveUp(item)} disabled={i === 0} onClick={() => move(i, i - 1)}>{st.up}</button><button type="button" className="btn ghost" aria-label={st.moveDown(item)} disabled={i === order.length - 1} onClick={() => move(i, i + 1)}>{st.down}</button></li>)}</ol></div>;
   }
   if (q.type === "matching") {
     const given = answer && typeof answer === "object" ? answer as Record<string, string> : {};

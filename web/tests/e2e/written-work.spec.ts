@@ -55,7 +55,7 @@ test("a teacher creates a dictation without AI", async ({ page }) => {
   });
   await page.route(`**/api/tests/${TEST_ID}**`, route => route.abort());
   await page.goto("/create");
-  await page.getByRole("link", { name: "Диктант или эссе без ИИ →" }).click();
+  await page.getByRole("link", { name: "Диктант или эссе без ИИ" }).click();
   await expect(page.getByRole("heading", { name: "Диктант, списывание или эссе" })).toBeVisible();
   await page.getByLabel("Словарный диктант").check();
   await page.getByLabel("Название").fill("Словарные слова");
@@ -142,7 +142,7 @@ test("copying shows the text; an essay counts words", async ({ page }) => {
   const work = { id: essay.id, type: "essay", question: essay.question, skill_tag: "Эссе", min_words: 50, criteria: essay.criteria };
   await openStudent(page, [copy, work]);
   await expect(page.getByText("Мама мыла раму.")).toBeVisible();
-  await page.getByRole("button", { name: "Далее →" }).click();
+  await page.getByRole("button", { name: "Далее" }).click();
   await page.getByLabel("Ваш текст").fill("Книги учат думать.");
   await expect(page.getByText("Слов: 3 · нужно не меньше 50")).toBeVisible();
 });

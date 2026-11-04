@@ -30,7 +30,7 @@ test("a class card opens the students' progress across tests", async ({ page }) 
   await expect(table.getByRole("rowheader", { name: /Айгерим Серикова\s*aigerim@school\.kz/ })).toBeVisible();
   await expect(table.getByRole("rowheader", { name: "new@school.kz" })).toBeVisible();
   await expect(table.locator("td.heat-wrong")).toHaveText("45");
-  await expect(table.getByText("▲ 35")).toBeVisible();
+  await expect(table.getByText("+35")).toBeVisible();
   await expect(page.locator(".progress-tests li")).toHaveText(["Дроби", "Проценты"]);
 });
 
