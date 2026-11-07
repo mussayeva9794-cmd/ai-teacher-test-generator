@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { api } from "@/lib/client";
 import type { ClassRow, QuestionType, TestRow, TestVariant, ShareSettings } from "@/lib/types";
@@ -52,6 +52,7 @@ function SourcesPanel({ variant, t }: { variant: TestVariant; t: Dictionary }) {
 }
 
 export default function TestPage() {
+  const router = useRouter();
   const { id } = useParams<{ id: string }>();
   const { t, intl, date } = useI18n();
   const p = t.testPage;
@@ -237,6 +238,15 @@ export default function TestPage() {
     finally { setBusy(false); }
   }
 
+  async function duplicateTest() {
+    if (!canLeave()) return;
+    setBusy(true); setError("");
+    try {
+      const copy = await api<{ id: string }>(`/api/tests/${id}/duplicate`, { method: "POST" });
+      router.push(`/tests/${copy.id}`);
+    } catch (cause) { setError(err(cause, p.duplicateFailed)); setBusy(false); }
+  }
+
   async function suggestScores() {
     if (!window.confirm(p.suggestNote)) return;
     setSuggesting(true); setResultsError(""); setMessage("");
@@ -283,7 +293,7 @@ export default function TestPage() {
     return question ? answerText(question, value) : typeof value === "object" && value !== null ? JSON.stringify(value) : String(value ?? "");
   };
   return <div className="wrap"><TeacherHeader current="tests" canLeave={canLeave} />
-    {!test ? <div className="panel">{error || p.loading}</div> : <><section className="page-head"><div className="eyebrow">{p.eyebrow(t.status[test.status])}</div><h1>{test.title}</h1><div className="row head-meta">{testMeta(test) ? <p className="muted">{testMeta(test)}</p> : <span />}<Link className="btn" href={`/tests/${id}/print`} onClick={event => { if (!canLeave()) event.preventDefault(); }}>{p.printTest}</Link></div></section>
+    {!test ? <div className="panel">{error || p.loading}</div> : <><section className="page-head"><div className="eyebrow">{p.eyebrow(t.status[test.status])}</div><h1>{test.title}</h1><div className="row head-meta">{testMeta(test) ? <p className="muted">{testMeta(test)}</p> : <span />}<button type="button" className="btn" disabled={busy} onClick={duplicateTest}>{p.duplicate}</button><Link className="btn" href={`/tests/${id}/print`} onClick={event => { if (!canLeave()) event.preventDefault(); }}>{p.printTest}</Link></div></section>
       <div className={tab === "review" ? "toolbar save-bar" : "toolbar"}><div className="tabs">{[["review",p.tabReview],["share",p.tabShare],["results",p.tabResults]].map(([value,label]) => <button className={tab === value ? "active" : ""} key={value} onClick={() => setTab(value)}>{label}</button>)}</div>{tab === "review" && <div className="row save-actions"><span className={dirty ? "save-state dirty" : "save-state"} role="status">{dirty ? p.unsaved : p.allSaved}</span><button className={dirty ? "btn primary" : "btn"} disabled={busy || !dirty || Boolean(regenerating)} onClick={() => save()}>{p.save}</button>{test.status === "draft" && <button className="btn primary" disabled={busy || Boolean(regenerating)} onClick={() => save("published")}>{p.publish}</button>}{test.status === "published" && <button className="btn ghost" disabled={busy || Boolean(regenerating)} onClick={() => { if (window.confirm(p.confirmArchive)) void save("archived"); }}>{p.archive}</button>}{test.status === "archived" && <button className="btn primary" disabled={busy || Boolean(regenerating)} onClick={() => save("published")}>{p.restore}</button>}</div>}</div>
       {error && <div className="error" role="alert" style={{ marginBottom: 16 }}>{error}</div>}{message && <div className="success" role="status" style={{ marginBottom: 16 }}>{message}</div>}
       {tab !== "results" && <div className="tabs" style={{ marginBottom: 18 }}>{Object.keys(test.variants).map(name => <button key={name} className={variantName === name ? "active" : ""} onClick={() => setVariantName(name)}>{variantLabel(name, t)}</button>)}</div>}
