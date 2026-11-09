@@ -237,6 +237,13 @@ async function groqCompletion(body: Record<string, unknown>, timeoutMs = 45000):
     if (response.status === 429) {
       throw new GroqGenerationError("rate_limit", "Groq rate limit exceeded.", response.status);
     }
+    // The error body names the cause (bad schema, model gone, bad JSON); it carries no secrets.
+    const detail = await response.json().catch(() => null) as { error?: { code?: string; message?: string } } | null;
+    console.error("Groq request rejected", { status: response.status, code: detail?.error?.code, message: detail?.error?.message?.slice(0, 300) });
+    // The model produced JSON that broke the schema (often cut off by the token limit): a retry can succeed.
+    if (response.status === 400 && detail?.error?.code === "json_validate_failed") {
+      throw new GroqGenerationError("invalid_response", "Groq returned JSON that does not match the schema.", response.status);
+    }
     throw new GroqGenerationError("upstream", "Groq request failed.", response.status);
   }
   try {
