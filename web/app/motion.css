@@ -37,26 +37,17 @@
 }
 .home-page .hero-art.enter { animation-name: rise-soft; animation-duration: 900ms; }
 
-/* ---------- Landing: the preview card acts out the product ---------- */
-/* Variant chips take turns being active: A, B, C, D, then repeat. */
-@keyframes chip-turn {
-  0%, 22% { border-color: #e9b6bd; background-color: #fff0ef; color: var(--wine); }
-  25%, 100% { border-color: #e9dcd4; background-color: #fff; color: #665a55; }
+/* ---------- Landing: the four variant sheets take turns at the front ---------- */
+/* Each sheet holds a slot, steps forward, and the front one slides out and returns to the back. */
+@keyframes hero-cycle {
+  0%, 17% { opacity: 1; transform: translate3d(-84px, 36px, -110px) rotateZ(-9deg); }
+  25%, 42% { transform: translate3d(-34px, 12px, -34px) rotateZ(-4deg); }
+  50%, 67% { transform: translate3d(16px, -12px, 42px) rotateZ(1deg); }
+  75%, 90% { opacity: 1; transform: translate3d(66px, -36px, 118px) rotateZ(6deg); }
+  96% { opacity: 0; transform: translate3d(250px, -76px, 30px) rotateZ(17deg); }
+  100% { opacity: 1; transform: translate3d(-84px, 36px, -110px) rotateZ(-9deg); }
 }
-.hero-preview-options span { animation: chip-turn 8s linear infinite; animation-delay: calc(var(--chip, 0) * 2s); }
-.hero-preview-options span:nth-child(1) { --chip: 0; }
-.hero-preview-options span:nth-child(2) { --chip: 1; }
-.hero-preview-options span:nth-child(3) { --chip: 2; }
-.hero-preview-options span:nth-child(4) { --chip: 3; }
-
-/* Question lines "type" again each time the active variant changes (every 2 s). */
-@keyframes type-line {
-  0% { clip-path: inset(0 100% 0 0); }
-  40%, 88% { clip-path: inset(0 0 0 0); }
-  100% { clip-path: inset(0 100% 0 0); }
-}
-.hero-preview-line { animation: type-line 2s var(--ease-out) infinite; }
-.hero-preview-line.short { animation-delay: 150ms; }
+.hero-sheet { animation: hero-cycle 12s var(--ease-out) infinite; animation-delay: calc(var(--i) * -3s); }
 
 /* Results bar fills as answers arrive. */
 @keyframes fill-rule {
@@ -68,15 +59,10 @@
 /* Gentle float on wide screens only: the preview uses backdrop blur, and
    moving a blurred layer is costly on phones. */
 @media (min-width: 761px) {
-  @keyframes float-preview {
-    0%, 100% { transform: rotate(-3deg) translateY(0); }
-    50% { transform: rotate(-3deg) translateY(-8px); }
-  }
   @keyframes float-card {
     0%, 100% { transform: rotate(5deg) translateY(0); }
     50% { transform: rotate(5deg) translateY(-10px); }
   }
-  .hero-preview { animation: float-preview 7s var(--ease-in-out) infinite; }
   .hero-floating-card { animation: float-card 6s var(--ease-in-out) infinite; animation-delay: -2s; }
 }
 
@@ -178,7 +164,7 @@
 
 @media (prefers-reduced-motion: reduce) {
   .enter, .scroll-reveal, .page-enter,
-  .hero-preview, .hero-floating-card, .hero-preview-options span, .hero-preview-line, .hero-floating-rule,
+  .hero-sheet, .hero-floating-card, .hero-floating-rule,
   .illus .draw, .draw-in .float-slow,
   .generating-draft .gen-line, .generating-draft .gen-chips span {
     animation: none !important;
