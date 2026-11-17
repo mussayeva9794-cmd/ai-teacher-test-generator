@@ -5,6 +5,7 @@ import { Brand, BRAND_NAME } from "./brand";
 import { InstallHint } from "./install-hint";
 import { HomeAuthLinks } from "./home-auth-links";
 import { LanguageSwitcher } from "./language-switcher";
+import { LandingScene } from "./landing-scene";
 import { getT } from "@/lib/i18n/server";
 
 // Stagger index for the entrance animation in motion.css.
@@ -39,16 +40,14 @@ export default async function Home() {
         <div className="hero-art enter" style={order(2)} aria-hidden="true">
           <div className="hero-orb hero-orb-one" />
           <div className="hero-orb hero-orb-two" />
-          <div className="hero-preview">
-            <div className="hero-preview-top"><span className="hero-preview-brand"><span className="hero-preview-dot" /> {BRAND_NAME}</span><span>{h.previewWorkspace}</span></div>
-            <div className="hero-preview-body">
-              <div className="hero-preview-overline">{h.previewOverline}</div>
-              <div className="hero-preview-title">{h.previewTitle}</div>
-              <div className="hero-preview-description">{h.previewDescription}</div>
-              <div className="hero-preview-options">{["A", "B", "C", "D"].map(letter => <span key={letter}>{t.labels.variant(letter)}</span>)}</div>
-              <div className="hero-preview-question"><span className="hero-preview-index">01 / 05</span><strong>{h.previewQuestion}</strong><span className="hero-preview-line" /><span className="hero-preview-line short" /></div>
-            </div>
-          </div>
+          <LandingScene>
+            {["A", "B", "C", "D"].map((letter, i) => <div className="hero-sheet" style={order(i)} key={letter}>
+              <span className="hero-sheet-tag">{t.labels.variant(letter)}</span>
+              <b>{h.previewQuestion}</b>
+              <i /><i /><i className="short" />
+              <div className="hero-sheet-options"><u /><u className="on" /><u /><u /></div>
+            </div>)}
+          </LandingScene>
           <div className="hero-floating-card"><span>{h.floatingLabel}</span><strong>{h.floatingValue}</strong><span className="hero-floating-rule" /></div>
           <div className="hero-art-caption">{h.artCaption}</div>
         </div>
