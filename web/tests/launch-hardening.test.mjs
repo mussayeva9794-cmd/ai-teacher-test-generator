@@ -73,8 +73,7 @@ test("generation quota allows a reserved request", async () => {
 });
 
 test("Groq GPT-OSS requests suppress reasoning with the supported parameter", () => {
-  assert.match(groqClient, /include_reasoning:\s*false/);
-  assert.doesNotMatch(groqClient, /reasoning_format/);
+  assert.match(groqClient, /startsWith\("openai\/gpt-oss"\) \? \{ include_reasoning: false \} : \{ reasoning_format: "hidden" \}/);
 });
 
 test("Groq failures log only safe status metadata and hide server configuration from teachers", () => {

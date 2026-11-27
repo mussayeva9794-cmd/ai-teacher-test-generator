@@ -17,7 +17,7 @@ test("reduced motion shows the landing page at rest immediately", async ({ brows
   const context = await browser.newContext({ reducedMotion: "reduce" });
   const page = await context.newPage();
   await page.goto("/");
-  const states = await page.locator(".enter, .process-card, .hero-preview").evaluateAll(elements =>
+  const states = await page.locator(".enter, .process-card, .hero-sheet").evaluateAll(elements =>
     elements.map(element => ({ opacity: getComputedStyle(element).opacity, animation: getComputedStyle(element).animationName })));
   for (const state of states) {
     expect(state.opacity).toBe("1");

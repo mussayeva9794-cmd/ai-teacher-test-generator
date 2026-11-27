@@ -24,7 +24,7 @@ Legacy Streamlit account passwords and existing test/attempt history are **not**
    - `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`: Supabase publishable key (not the secret key).
    - `SUPABASE_SECRET_KEY`: Supabase secret/service-role key; server-side only, never prefix with `NEXT_PUBLIC_`.
    - `GROQ_API_KEY`: Groq API key; server-side only.
-   - `GROQ_MODEL`: optional; defaults to `openai/gpt-oss-120b` (falls back to `openai/gpt-oss-20b` when rate limited). `GROQ_REASONING_EFFORT`: optional `low`/`medium`/`high`, default `medium`.
+   - `GROQ_MODELS`: optional comma list of models to spread generation over; default `openai/gpt-oss-120b,qwen/qwen3.8-27b,openai/gpt-oss-20b`. The three variants of a test run in parallel on different models (hard on the first); a busy model hands its work to the next. `GROQ_MODEL` replaces only the first model. How the AI writes questions: `lib/question-guide.ts`. `GROQ_REASONING_EFFORT`: optional `low`/`medium`/`high`, default `medium`.
 5. Deploy a **preview** first. Open `/api/health` and confirm both `*_configured` flags are true. Test student sign-up, administrator-approved teacher access, generation, publication, one submission, teacher results and repeat-attempt denial. Promote to production only after that.
 
 ## School pilot hardening

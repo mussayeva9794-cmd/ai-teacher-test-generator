@@ -3,6 +3,7 @@ import { isValidVariant } from "./assessment";
 import { BLOOM_LEVELS, QUESTION_TYPES } from "./question-validation";
 import { networkErrorCode } from "./network-error";
 import { TRUE_FALSE_OPTIONS } from "./true-false";
+import { QUESTION_GUIDE } from "./question-guide";
 
 export type GenerateInput = {
   topic: string;
@@ -112,12 +113,20 @@ function responseSchema(input: GenerateInput) {
 
 function canonicalTrueFalse(value: unknown, language: GenerateInput["language"]): string {
   const normalized = String(value || "").trim().toLocaleLowerCase();
-  const truthy = new Set(["true", "верно", "правда", "дұрыс", "иә", "yes"]);
-  const falsy = new Set(["false", "неверно", "ложь", "бұрыс", "жоқ", "no"]);
+  const truthy = new Set(["true", "верно", "правда", "истина", "дұрыс", "иә", "ақиқат", "шын", "yes"]);
+  const falsy = new Set(["false", "неверно", "не верно", "ложь", "ложно", "бұрыс", "дұрыс емес", "қате", "жалған", "жоқ", "no"]);
   const [trueLabel, falseLabel] = TRUE_FALSE_OPTIONS[language];
   if (truthy.has(normalized)) return trueLabel;
   if (falsy.has(normalized)) return falseLabel;
   return "";
+}
+
+function shuffled<T>(items: T[]): T[] {
+  for (let i = items.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [items[i], items[j]] = [items[j], items[i]];
+  }
+  return items;
 }
 
 function toQuestion(
@@ -133,9 +142,10 @@ function toQuestion(
   const rawOptions = Array.isArray(source.options)
     ? source.options.map((option) => String(option).trim()).filter(Boolean)
     : [];
+  // Models put the right answer first far too often, so choice options are shuffled here.
   const options = type === "true_false"
     ? [...TRUE_FALSE_OPTIONS[input.language]]
-    : [...new Set(rawOptions)];
+    : shuffled([...new Set(rawOptions)]);
   const listOf = (raw: unknown) => Array.isArray(raw) ? [...new Set(raw.map((item) => String(item).trim()).filter(Boolean))] : [];
   // Keep only declared correct answers that really are options, in option order.
   const correctSet = new Set(listOf(source.correct_answers).map((item) => item.toLocaleLowerCase()));
@@ -170,7 +180,7 @@ function toQuestion(
 function selfCheck(type: QuestionType | "mixed"): string {
   if (type === "mixed") return QUESTION_TYPES.map((item) => `${item}: ${selfCheck(item)}`).join("\n");
   if (type === "multiple_select") {
-    return `every option listed in correct_answers is correct, every other option is clearly wrong, at least one option is wrong,
+    return `every option listed in correct_answers is correct, every other option is definitely wrong yet plausible, at least one option is wrong,
 and the explanation says why each correct option is right.`;
   }
   if (type === "ordering") {
@@ -182,7 +192,8 @@ and the explanation says why each correct option is right.`;
   if (type === "short_answer") {
     return "the question has one short, unambiguous answer and correct_answer states it.";
   }
-  return `exactly one option is correct and it equals correct_answer; every other option is clearly wrong;
+  return `exactly one option is correct and it equals correct_answer; every other option is definitely wrong yet plausible to a student who has not learned the topic;
+the answer cannot be guessed from the wording or option length;
 a negatively worded question ("NOT", "НЕ", "ЕМЕС") has exactly one option that does not fit;
 the explanation states why correct_answer is right and never contradicts it.`;
 }
@@ -199,13 +210,18 @@ function reasoningEffort(): "low" | "medium" | "high" {
   return value === "low" || value === "high" ? value : "medium";
 }
 
-// The 120b model wrote clearly more accurate questions in staging QA; the
-// smaller model stays as a fallback when the larger one is rate limited.
+// The 120b model wrote clearly more accurate questions in staging QA, so it goes first.
+// Groq limits tokens per minute per model, so the three variants of a test go to
+// three different models at once, and a busy model hands its work to the next one.
 const PRIMARY_MODEL = "openai/gpt-oss-120b";
-const FALLBACK_MODEL = "openai/gpt-oss-20b";
+const DEFAULT_POOL = [PRIMARY_MODEL, "qwen/qwen3.8-27b", "openai/gpt-oss-20b"];
 
-function configuredModel(): string {
-  return process.env.GROQ_MODEL?.trim() || PRIMARY_MODEL;
+/** Models to spread requests over; GROQ_MODELS (comma list) overrides, GROQ_MODEL replaces the first. */
+export function modelPool(): string[] {
+  const listed = (process.env.GROQ_MODELS || "").split(",").map((model) => model.trim()).filter(Boolean);
+  const first = process.env.GROQ_MODEL?.trim();
+  const pool = listed.length ? listed : first ? [first, ...DEFAULT_POOL.slice(1)] : DEFAULT_POOL;
+  return [...new Set(pool)];
 }
 
 type GroqCall = { model: string; schemaName: string; schema: unknown; system: string; prompt: string; temperature: number };
@@ -262,7 +278,8 @@ async function groqJson(call: GroqCall): Promise<Record<string, unknown>> {
     max_completion_tokens: 8192,
     // "low" produced factual slips in live QA; teachers still review every question.
     reasoning_effort: reasoningEffort(),
-    include_reasoning: false,
+    // GPT-OSS rejects reasoning_format; other Groq reasoning models hide reasoning with it.
+    ...(call.model.startsWith("openai/gpt-oss") ? { include_reasoning: false } : { reasoning_format: "hidden" }),
     response_format: {
       type: "json_schema",
       json_schema: { name: call.schemaName, strict: true, schema: call.schema },
@@ -298,7 +315,7 @@ Before answering, check every question: it is factually correct for this grade; 
 Rewrite any question that fails a check.`;
   const raw = await groqJson({
     model, schemaName: "test_variant", schema: responseSchema(input), temperature: 0.35,
-    system: "You are a careful school assessment author. Output valid JSON only.", prompt,
+    system: `You are a careful school assessment author. Follow this guide. Output valid JSON only.\n\n${QUESTION_GUIDE}`, prompt,
   });
   const variant: TestVariant = {
     title: String(raw.title || `${input.topic} test`).slice(0, 180),
@@ -318,34 +335,38 @@ Rewrite any question that fails a check.`;
   return variant;
 }
 
-/** The primary model is busy or gone: worth one try on the fallback model. */
+/** The model is busy or gone: worth a try on another model. */
 function modelUnavailable(error: unknown): error is GroqGenerationError {
+  // 400 too: a model that rejects a parameter should not fail the whole test while another model works.
   return error instanceof GroqGenerationError && (error.reason === "rate_limit" || error.reason === "timeout" ||
-    (error.reason === "upstream" && error.upstreamStatus === 404));
+    (error.reason === "upstream" && (error.upstreamStatus === 404 || error.upstreamStatus === 400)));
 }
 
-async function withFallback<T>(call: (model: string) => Promise<T>): Promise<T> {
-  try {
-    return await call(configuredModel());
-  } catch (error) {
-    if (!modelUnavailable(error) || configuredModel() === FALLBACK_MODEL) throw error;
-    return call(FALLBACK_MODEL);
-  }
-}
-
-async function generateVariant(input: GenerateInput, difficulty: string): Promise<TestVariant> {
+/**
+ * Runs call on the pool's models starting at `start`: a busy or missing model
+ * passes to the next one (each model at most once), an incomplete reply is
+ * retried on the next model up to MAX_GENERATION_ATTEMPTS times.
+ */
+async function acrossModels<T>(call: (model: string) => Promise<T>, start = 0, label = "request"): Promise<T> {
+  const pool = modelPool();
+  let unavailable = 0;
+  let invalid = 0;
   let lastError: unknown;
-  for (let attempt = 1; attempt <= generationAttempts(); attempt += 1) {
+  for (let i = 0; unavailable < pool.length && invalid < generationAttempts(); i += 1) {
+    const model = pool[(start + i) % pool.length];
     try {
-      return await requestVariant(input, difficulty, configuredModel());
+      return await call(model);
     } catch (error) {
       lastError = error;
-      if (modelUnavailable(error) && configuredModel() !== FALLBACK_MODEL) {
-        console.warn("Groq primary model unavailable; using fallback", { difficulty, reason: error.reason });
-        return await requestVariant(input, difficulty, FALLBACK_MODEL);
+      if (modelUnavailable(error)) {
+        unavailable += 1;
+        console.warn("Groq model unavailable; trying the next one", { label, model, reason: error.reason });
+      } else if (error instanceof GroqGenerationError && error.reason === "invalid_response") {
+        invalid += 1;
+        console.warn("Groq returned an incomplete reply", { label, model, attempt: invalid });
+      } else {
+        throw error;
       }
-      if (!(error instanceof GroqGenerationError) || error.reason !== "invalid_response") throw error;
-      console.warn("Groq returned an incomplete variant", { difficulty, attempt });
     }
   }
   throw lastError instanceof GroqGenerationError
@@ -353,11 +374,20 @@ async function generateVariant(input: GenerateInput, difficulty: string): Promis
     : new GroqGenerationError("invalid_response", "Groq returned an incomplete test.");
 }
 
+const withFallback = <T>(call: (model: string) => Promise<T>) => acrossModels(call);
+
+function generateVariant(input: GenerateInput, difficulty: string, start = 0): Promise<TestVariant> {
+  return acrossModels((model) => requestVariant(input, difficulty, model), start, difficulty);
+}
+
 export async function generateVariants(input: GenerateInput): Promise<Record<string, TestVariant>> {
-  // Sequential requests avoid exhausting low-tier Groq request limits during retries.
-  const easy = await generateVariant(input, "easy");
-  const medium = await generateVariant(input, "medium");
-  const hard = await generateVariant(input, "hard");
+  // In parallel, each on its own model (the best model gets the hard variant), so
+  // no single model's per-minute limit takes the whole test.
+  const [hard, medium, easy] = await Promise.all([
+    generateVariant(input, "hard", 0),
+    generateVariant(input, "medium", 1),
+    generateVariant(input, "easy", 2),
+  ]);
   const generated = [easy, medium, hard];
   const mixed: TestVariant = {
     title: `${medium.title} — mixed`,

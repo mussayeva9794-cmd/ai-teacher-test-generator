@@ -32,15 +32,51 @@ async function withFetch(handler, run) {
   };
   process.env.GROQ_API_KEY = "gsk_test";
   delete process.env.GROQ_MODEL;
+  delete process.env.GROQ_MODELS;
   try { await run(models); } finally { globalThis.fetch = original; }
 }
 
-test("generation uses the 120b model with medium reasoning by default", async () => {
+test("the three variants go to three different models, the hard one to 120b, with the writing guide", async () => {
   const { generateVariants } = await import("../lib/groq.ts");
-  await withFetch(() => Response.json(variantPayload()), async (models) => {
+  const byModel = {};
+  await withFetch((body) => {
+    byModel[body.model] = body.messages[1].content.match(/Difficulty: (\w+)/)[1];
+    assert.match(body.messages[0].content, /The answer must not be obvious/);
+    assert.match(body.messages[0].content, /Kazakh language/);
+    if (body.model.startsWith("openai/gpt-oss")) assert.equal(body.include_reasoning, false);
+    else assert.equal(body.reasoning_format, "hidden");
+    return Response.json(variantPayload());
+  }, async (models) => {
     const variants = await generateVariants(input);
     assert.deepEqual(Object.keys(variants), ["Variant A", "Variant B", "Variant C", "Variant D"]);
-    assert.ok(models.every((model) => model === "openai/gpt-oss-120b"));
+    assert.equal(new Set(models).size, 3);
+    assert.equal(byModel["openai/gpt-oss-120b"], "hard");
+  });
+});
+
+test("GROQ_MODELS sets the pool; GROQ_MODEL replaces only the first model", async () => {
+  const { modelPool } = await import("../lib/groq.ts");
+  delete process.env.GROQ_MODELS;
+  process.env.GROQ_MODEL = "a";
+  assert.deepEqual(modelPool(), ["a", "qwen/qwen3.8-27b", "openai/gpt-oss-20b"]);
+  process.env.GROQ_MODELS = " x , y,x ";
+  assert.deepEqual(modelPool(), ["x", "y"]);
+  delete process.env.GROQ_MODELS;
+  delete process.env.GROQ_MODEL;
+});
+
+test("a busy model passes its variant to the next model; when all are busy the error is rate_limit", async () => {
+  const { generateVariants, GroqGenerationError } = await import("../lib/groq.ts");
+  await withFetch((body) => body.model === "openai/gpt-oss-120b"
+    ? new Response("{}", { status: 429 })
+    : Response.json(variantPayload()), async (models) => {
+    const variants = await generateVariants(input);
+    assert.equal(variants["Variant C"].questions.length, 2);
+    assert.equal(models.filter((model) => model === "openai/gpt-oss-120b").length, 1, "only the hard variant tried 120b");
+  });
+  await withFetch(() => new Response("{}", { status: 429 }), async (models) => {
+    await assert.rejects(generateVariants(input), (error) => error instanceof GroqGenerationError && error.reason === "rate_limit");
+    assert.equal(models.length, 9, "each variant tried each of the 3 models once");
   });
 });
 
@@ -61,7 +97,7 @@ test("a rejected API key does not silently switch models", async () => {
   const { generateVariants, GroqGenerationError } = await import("../lib/groq.ts");
   await withFetch(() => new Response("{}", { status: 401 }), async (models) => {
     await assert.rejects(generateVariants(input), (error) => error instanceof GroqGenerationError && error.reason === "authentication");
-    assert.deepEqual(models, ["openai/gpt-oss-120b"]);
+    assert.ok(models.length <= 3, "no retries on other models");
   });
 });
 
@@ -104,4 +140,29 @@ test("a mixed test of one question type is sent back to the AI", async () => {
     await assert.rejects(generateVariants({ ...input, type: "mixed" }), (error) => error instanceof GroqGenerationError && error.reason === "invalid_response");
     assert.ok(calls > 1, "retried before giving up");
   });
+});
+
+test("Kazakh true/false answers the AI writes in other words still map to Дұрыс / Бұрыс", async () => {
+  const { generateVariants } = await import("../lib/groq.ts");
+  const answers = ["Дұрыс емес", "Қате", "Жалған", "Ақиқат"];
+  const questions = answers.map((answer, i) => ({ id: `q${i}`, type: "true_false", question: `Тұжырым ${i}.`, options: [],
+    correct_answer: answer, explanation: "Себебі.", skill_tag: "т", source_reference: "", bloom_level: "knowledge" }));
+  await withFetch(() => Response.json({ choices: [{ message: { content: JSON.stringify({ title: "Тест", instructions: "Жауап беріңіз.", questions }) } }] }), async () => {
+    const variants = await generateVariants({ ...input, count: 4, type: "true_false", language: "kazakh" });
+    assert.deepEqual(variants["Variant A"].questions.map((q) => q.correct_answer), ["Бұрыс", "Бұрыс", "Бұрыс", "Дұрыс"]);
+  });
+});
+
+test("choice options are shuffled, so the right answer is not always first", async () => {
+  const { generateVariants } = await import("../lib/groq.ts");
+  const firsts = new Set();
+  await withFetch(() => Response.json(variantPayload()), async () => {
+    for (let i = 0; i < 10; i += 1) {
+      const q = (await generateVariants(input))["Variant A"].questions[0];
+      assert.deepEqual([...q.options].sort(), ["А", "Б", "В", "Г"]);
+      assert.equal(q.correct_answer, "А");
+      firsts.add(q.options[0]);
+    }
+  });
+  assert.ok(firsts.size > 1);
 });
