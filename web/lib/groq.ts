@@ -113,12 +113,20 @@ function responseSchema(input: GenerateInput) {
 
 function canonicalTrueFalse(value: unknown, language: GenerateInput["language"]): string {
   const normalized = String(value || "").trim().toLocaleLowerCase();
-  const truthy = new Set(["true", "верно", "правда", "дұрыс", "иә", "yes"]);
-  const falsy = new Set(["false", "неверно", "ложь", "бұрыс", "жоқ", "no"]);
+  const truthy = new Set(["true", "верно", "правда", "истина", "дұрыс", "иә", "ақиқат", "шын", "yes"]);
+  const falsy = new Set(["false", "неверно", "не верно", "ложь", "ложно", "бұрыс", "дұрыс емес", "қате", "жалған", "жоқ", "no"]);
   const [trueLabel, falseLabel] = TRUE_FALSE_OPTIONS[language];
   if (truthy.has(normalized)) return trueLabel;
   if (falsy.has(normalized)) return falseLabel;
   return "";
+}
+
+function shuffled<T>(items: T[]): T[] {
+  for (let i = items.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [items[i], items[j]] = [items[j], items[i]];
+  }
+  return items;
 }
 
 function toQuestion(
@@ -134,9 +142,10 @@ function toQuestion(
   const rawOptions = Array.isArray(source.options)
     ? source.options.map((option) => String(option).trim()).filter(Boolean)
     : [];
+  // Models put the right answer first far too often, so choice options are shuffled here.
   const options = type === "true_false"
     ? [...TRUE_FALSE_OPTIONS[input.language]]
-    : [...new Set(rawOptions)];
+    : shuffled([...new Set(rawOptions)]);
   const listOf = (raw: unknown) => Array.isArray(raw) ? [...new Set(raw.map((item) => String(item).trim()).filter(Boolean))] : [];
   // Keep only declared correct answers that really are options, in option order.
   const correctSet = new Set(listOf(source.correct_answers).map((item) => item.toLocaleLowerCase()));

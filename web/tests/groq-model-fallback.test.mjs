@@ -141,3 +141,28 @@ test("a mixed test of one question type is sent back to the AI", async () => {
     assert.ok(calls > 1, "retried before giving up");
   });
 });
+
+test("Kazakh true/false answers the AI writes in other words still map to Дұрыс / Бұрыс", async () => {
+  const { generateVariants } = await import("../lib/groq.ts");
+  const answers = ["Дұрыс емес", "Қате", "Жалған", "Ақиқат"];
+  const questions = answers.map((answer, i) => ({ id: `q${i}`, type: "true_false", question: `Тұжырым ${i}.`, options: [],
+    correct_answer: answer, explanation: "Себебі.", skill_tag: "т", source_reference: "", bloom_level: "knowledge" }));
+  await withFetch(() => Response.json({ choices: [{ message: { content: JSON.stringify({ title: "Тест", instructions: "Жауап беріңіз.", questions }) } }] }), async () => {
+    const variants = await generateVariants({ ...input, count: 4, type: "true_false", language: "kazakh" });
+    assert.deepEqual(variants["Variant A"].questions.map((q) => q.correct_answer), ["Бұрыс", "Бұрыс", "Бұрыс", "Дұрыс"]);
+  });
+});
+
+test("choice options are shuffled, so the right answer is not always first", async () => {
+  const { generateVariants } = await import("../lib/groq.ts");
+  const firsts = new Set();
+  await withFetch(() => Response.json(variantPayload()), async () => {
+    for (let i = 0; i < 10; i += 1) {
+      const q = (await generateVariants(input))["Variant A"].questions[0];
+      assert.deepEqual([...q.options].sort(), ["А", "Б", "В", "Г"]);
+      assert.equal(q.correct_answer, "А");
+      firsts.add(q.options[0]);
+    }
+  });
+  assert.ok(firsts.size > 1);
+});
